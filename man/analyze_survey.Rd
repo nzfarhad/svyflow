@@ -4,7 +4,13 @@
 \alias{analyze_survey}
 \title{Run an analysis plan against a survey design}
 \usage{
-analyze_survey(design, analysis_plan, multi_response_sep = "; ")
+analyze_survey(
+  design,
+  analysis_plan,
+  multi_response_sep = "; ",
+  result_format = "proportion",
+  digits = 1
+)
 }
 \arguments{
 \item{design}{A \link[srvyr:tbl_svy]{srvyr::tbl_svy} survey design (typically from
@@ -24,6 +30,19 @@ disaggregation axis, or \code{NA}.
 
 \item{multi_response_sep}{Separator used by \code{\link[=expand_multiselect]{expand_multiselect()}} if it
 needs to be invoked on the design's data. Defaults to \code{"; "}.}
+
+\item{result_format}{How proportion-producing rows (\code{select_one},
+\code{select_multiple}) report \code{Result}/\code{SE}/\verb{CI_*}. One of \code{"proportion"}
+(default; 0-1 numeric), \code{"percent"} (0-100 numeric), or
+\code{"percent_fmt"} (character \code{"53.3\%"}; coerces the \code{Result} column
+to character for non-proportion rows too, so the column type stays
+stable). Non-proportion rows (mean, sum, median, etc.) report raw
+values regardless of this setting.}
+
+\item{digits}{Non-negative numeric scalar, or \code{NULL} for no rounding.
+Applied to numeric outputs in the two percent modes; ignored in
+\code{"proportion"} mode so the default does not crush precision. Default
+\code{1}.}
 }
 \value{
 A \code{\link{svyflow_results}} tibble with columns:

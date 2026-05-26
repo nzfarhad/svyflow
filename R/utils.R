@@ -43,12 +43,69 @@
   repeat_for         = "repeat_for"
 )
 
+# Accepted values of `result_format` across the public API. "proportion"
+# returns 0-1 numeric, "percent" returns 0-100 numeric, "percent_fmt"
+# returns a "53.3%" character string (Freq column only).
+.RESULT_FORMATS <- c("proportion", "percent", "percent_fmt")
+
+# Validate the (result_format, digits) pair. Called once at the top of
+# analyze_survey(). Aggregators called directly via svyflow::: also run it
+# so a bad call gets a clear error rather than a downstream type mismatch.
+.validate_format_args <- function(result_format, digits) {
+  if (!is.character(result_format) || length(result_format) != 1 ||
+      !(result_format %in% .RESULT_FORMATS)) {
+    stop("`result_format` must be one of: ",
+         paste(shQuote(.RESULT_FORMATS), collapse = ", "))
+  }
+  if (!is.null(digits)) {
+    if (!is.numeric(digits) || length(digits) != 1 ||
+        is.na(digits) || digits < 0) {
+      stop("`digits` must be a non-negative numeric scalar (or NULL).")
+    }
+  }
+  invisible(TRUE)
+}
+
+# Apply scaling (proportion <-> percent) and optional rounding to a numeric
+# proportion vector. Used for SE / CI columns where we never append "%".
+# digits is ignored in "proportion" mode so the default digits=1 does not
+# crush proportion precision; pass digits=NULL to disable rounding entirely.
+.scale_prop <- function(x, result_format, digits) {
+  val <- if (result_format == "proportion") x else x * 100
+  if (result_format != "proportion" && !is.null(digits)) {
+    val <- round(val, digits)
+  }
+  val
+}
+
+# Same as .scale_prop but for the Freq column: in "percent_fmt" mode the
+# output is a character vector with a trailing "%".
+.format_prop <- function(x, result_format, digits) {
+  val <- .scale_prop(x, result_format, digits)
+  if (result_format != "percent_fmt") return(val)
+  d <- if (is.null(digits)) 1 else digits
+  out <- ifelse(is.na(val), NA_character_,
+                paste0(formatC(val, format = "f", digits = d), "%"))
+  out
+}
+
+# Cast a raw numeric (mean, sum, median, etc.) into the same type used by
+# Freq in percent_fmt mode, so bind_rows() does not have to widen the
+# column. Non-proportion aggregators have no "%" — plain formatted number.
+.coerce_freq_if_fmt <- function(x, result_format, digits) {
+  if (result_format != "percent_fmt") return(x)
+  d <- if (is.null(digits)) 1 else digits
+  ifelse(is.na(x), NA_character_,
+         formatC(x, format = "f", digits = d))
+}
+
 # An "empty" aggregator row used when a variable is entirely NA. Same shape
 # as a real aggregator return so it can be rbind-stacked safely.
-.empty_row <- function(ques, method, disag, level) {
+.empty_row <- function(ques, method, disag, level, result_format = "proportion") {
+  freq_na <- if (result_format == "percent_fmt") NA_character_ else NA_real_
   tibble::tibble(
     Var1   = NA_character_,
-    Freq   = NA_real_,
+    Freq   = freq_na,
     SE     = NA_real_,
     CI_low = NA_real_,
     CI_high= NA_real_,

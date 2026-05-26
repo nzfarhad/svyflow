@@ -11,19 +11,77 @@
 \alias{stat_max_unweighted}
 \title{Per-type aggregators}
 \usage{
-single_select_svy(design, ques, disag, level, ms_options = NULL)
+single_select_svy(
+  design,
+  ques,
+  disag,
+  level,
+  ms_options = NULL,
+  result_format = "proportion",
+  digits = 1
+)
 
-multi_select_svy(design, ques, disag, level, ms_options = NULL)
+multi_select_svy(
+  design,
+  ques,
+  disag,
+  level,
+  ms_options = NULL,
+  result_format = "proportion",
+  digits = 1
+)
 
-stat_mean_svy(design, ques, disag, level, ms_options = NULL)
+stat_mean_svy(
+  design,
+  ques,
+  disag,
+  level,
+  ms_options = NULL,
+  result_format = "proportion",
+  digits = 1
+)
 
-stat_sum_svy(design, ques, disag, level, ms_options = NULL)
+stat_sum_svy(
+  design,
+  ques,
+  disag,
+  level,
+  ms_options = NULL,
+  result_format = "proportion",
+  digits = 1
+)
 
-stat_quantile_svy(design, ques, disag, level, q, method, ms_options = NULL)
+stat_quantile_svy(
+  design,
+  ques,
+  disag,
+  level,
+  q,
+  method,
+  ms_options = NULL,
+  result_format = "proportion",
+  digits = 1
+)
 
-stat_min_unweighted(design, ques, disag, level, ms_options = NULL)
+stat_min_unweighted(
+  design,
+  ques,
+  disag,
+  level,
+  ms_options = NULL,
+  result_format = "proportion",
+  digits = 1
+)
 
-stat_max_unweighted(design, ques, disag, level, ms_options = NULL)
+stat_max_unweighted(
+  design,
+  ques,
+  disag,
+  level,
+  ms_options = NULL,
+  result_format = "proportion",
+  digits = 1
+)
 }
 \arguments{
 \item{design}{A \link[srvyr:tbl_svy]{srvyr::tbl_svy} survey design.}
@@ -41,6 +99,18 @@ or \code{"all"} / \code{NA} when none.}
 \code{\link[=multi_select_svy]{multi_select_svy()}}; ignored by the others (kept on the signature
 for dispatcher uniformity).}
 
+\item{result_format}{One of \code{"proportion"} (default; 0-1 numeric),
+\code{"percent"} (0-100 numeric), or \code{"percent_fmt"} (character \code{"53.3\%"}).
+Only consumed by the proportion-producing aggregators
+(\code{\link[=single_select_svy]{single_select_svy()}}, \code{\link[=multi_select_svy]{multi_select_svy()}}); the others accept it
+for signature uniformity and ignore it for the \code{Freq} value (but they
+do coerce \code{Freq} to character in \code{"percent_fmt"} so the final
+\code{analyze_survey()} output keeps a stable column type).}
+
+\item{digits}{Non-negative numeric scalar, or \code{NULL} for no rounding.
+Applied to \code{Freq} / \code{SE} / \verb{CI_*} in the two percent modes; ignored
+in \code{"proportion"} mode to keep raw precision. Default \code{1}.}
+
 \item{q}{Numeric, single quantile in \verb{[0, 1]}.}
 
 \item{method}{Aggregation label written into \code{aggregation_method}
@@ -52,8 +122,8 @@ A tibble with columns \verb{Var1, Freq, SE, CI_low, CI_high, aggregation_method,
 \description{
 These functions compute one row (or a few rows for multi-response /
 grouped proportions) of analysis output. They all share the same
-signature \verb{(design, ques, disag, level, ms_options)} and return a tibble
-with a uniform 11-column shape (the internal \code{.AGG_COLS} vector).
+signature \verb{(design, ques, disag, level, ms_options, result_format, digits)} and return a tibble with a uniform 11-column shape (the
+internal \code{.AGG_COLS} vector).
 }
 \details{
 End users normally do not call these directly - they are invoked by

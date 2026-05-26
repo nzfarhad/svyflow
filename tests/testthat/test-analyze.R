@@ -13,23 +13,81 @@ test_that("analyze_survey returns the documented output schema", {
   expect_s3_class(res, "tbl_df")
 })
 
-test_that("select_one proportions sum to ~100 within each disaggregation level", {
+test_that("select_one proportions sum to ~1 within each disaggregation level (default)", {
   df <- make_test_data(n = 300)
   ap <- make_test_plan()
   res <- suppressWarnings(analyze_survey(make_design(df), ap))
 
-  # gender, no disagg
+  # Default result_format is "proportion" -> values in [0, 1], sum to ~1.
   s_total <- sum(res$Result[res$Question == "gender" &
                             res$Disaggregation == "all"], na.rm = TRUE)
-  expect_equal(s_total, 100, tolerance = 0.5)
+  expect_equal(s_total, 1, tolerance = 0.005)
 
-  # edu_lvl disaggregated by gender — within each gender level, sum is ~100
   for (g in unique(df$gender)) {
     s <- sum(res$Result[res$Question == "edu_lvl" &
                         res$Disaggregation == "gender" &
                         res$Disaggregation_level == g], na.rm = TRUE)
-    expect_equal(s, 100, tolerance = 0.5)
+    expect_equal(s, 1, tolerance = 0.005)
   }
+})
+
+test_that("result_format = 'percent' scales proportion rows by 100", {
+  df <- make_test_data(n = 300)
+  ap <- make_test_plan()
+  res <- suppressWarnings(analyze_survey(make_design(df), ap,
+                                         result_format = "percent"))
+
+  s_total <- sum(res$Result[res$Question == "gender" &
+                            res$Disaggregation == "all"], na.rm = TRUE)
+  expect_equal(s_total, 100, tolerance = 0.5)
+
+  # digits = 1 (default) rounds: at most one decimal of fractional info.
+  perc_rows <- res$Result[res$Aggregation_method == "perc"]
+  expect_true(all(abs(perc_rows - round(perc_rows, 1)) < 1e-9))
+})
+
+test_that("result_format = 'percent_fmt' returns character with %", {
+  df <- make_test_data(n = 200)
+  ap <- make_test_plan()
+  res <- suppressWarnings(analyze_survey(make_design(df), ap,
+                                         result_format = "percent_fmt",
+                                         digits = 2))
+
+  expect_type(res$Result, "character")
+  perc_rows <- res$Result[res$Aggregation_method == "perc"]
+  # All proportion rows end with "%" and parse back as a number 0-100.
+  expect_true(all(grepl("%$", perc_rows[!is.na(perc_rows)])))
+  numeric_part <- as.numeric(sub("%$", "", perc_rows[!is.na(perc_rows)]))
+  expect_true(all(numeric_part >= 0 & numeric_part <= 100))
+
+  # Non-proportion rows (mean / sum / median etc.) are still character but
+  # carry no "%" suffix.
+  mean_row <- res$Result[res$Aggregation_method == "mean" &
+                         res$Disaggregation == "all"][1]
+  expect_false(grepl("%$", mean_row))
+})
+
+test_that("digits argument is honored in percent mode", {
+  df <- make_test_data(n = 300)
+  ap <- make_test_plan()
+  res0 <- suppressWarnings(analyze_survey(make_design(df), ap,
+                                          result_format = "percent",
+                                          digits = 0))
+  perc_rows <- res0$Result[res0$Aggregation_method == "perc"]
+  expect_true(all(perc_rows == round(perc_rows)))
+})
+
+test_that("invalid result_format / digits give clear errors", {
+  df <- make_test_data(n = 50)
+  ap <- make_test_plan()
+  expect_error(
+    analyze_survey(make_design(df), ap, result_format = "ratio"),
+    "result_format"
+  )
+  expect_error(
+    analyze_survey(make_design(df), ap, digits = -1),
+    "digits"
+  )
 })
 
 test_that("unweighted mean / sum / quantiles match base R", {

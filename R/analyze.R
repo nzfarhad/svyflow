@@ -21,6 +21,17 @@
 #'      disaggregation axis, or `NA`.
 #' @param multi_response_sep Separator used by [expand_multiselect()] if it
 #'   needs to be invoked on the design's data. Defaults to `"; "`.
+#' @param result_format How proportion-producing rows (`select_one`,
+#'   `select_multiple`) report `Result`/`SE`/`CI_*`. One of `"proportion"`
+#'   (default; 0-1 numeric), `"percent"` (0-100 numeric), or
+#'   `"percent_fmt"` (character `"53.3%"`; coerces the `Result` column
+#'   to character for non-proportion rows too, so the column type stays
+#'   stable). Non-proportion rows (mean, sum, median, etc.) report raw
+#'   values regardless of this setting.
+#' @param digits Non-negative numeric scalar, or `NULL` for no rounding.
+#'   Applied to numeric outputs in the two percent modes; ignored in
+#'   `"proportion"` mode so the default does not crush precision. Default
+#'   `1`.
 #'
 #' @return A [`svyflow_results`] tibble with columns:
 #'   `Disaggregation`, `Disaggregation_level`, `Question`, `Response`,
@@ -44,7 +55,10 @@
 #' @export
 analyze_survey <- function(design,
                            analysis_plan,
-                           multi_response_sep = "; ") {
+                           multi_response_sep = "; ",
+                           result_format = "proportion",
+                           digits = 1) {
+  .validate_format_args(result_format, digits)
   df <- .svy_data(design)
   validate_plan(analysis_plan, df)
 
@@ -69,7 +83,8 @@ analyze_survey <- function(design,
 
   result_no_rf <- NULL
   if (!is.null(ap_no_rf) && nrow(ap_no_rf) > 0) {
-    result_no_rf <- run_plan_internal(design, ap_no_rf, ms_options)
+    result_no_rf <- run_plan_internal(design, ap_no_rf, ms_options,
+                                      result_format, digits)
     if (!is.null(result_no_rf)) result_no_rf$repeat_for <- NA_character_
   }
 
@@ -84,7 +99,8 @@ analyze_survey <- function(design,
         } else {
           srvyr::filter(design, .data[[rf_col]] == lvl)
         }
-        res <- run_plan_internal(d_sub, grp, ms_options)
+        res <- run_plan_internal(d_sub, grp, ms_options,
+                                 result_format, digits)
         if (!is.null(res)) res$repeat_for <- as.character(lvl)
         res
       })
@@ -106,7 +122,8 @@ analyze_survey <- function(design,
 
 # Walk an analysis plan against a single design. Internal helper; the public
 # entry point analyze_survey() handles repeat_for above this layer.
-run_plan_internal <- function(design, plan, ms_options) {
+run_plan_internal <- function(design, plan, ms_options,
+                              result_format = "proportion", digits = 1) {
   n <- nrow(plan)
   if (n == 0) return(NULL)
 
@@ -121,7 +138,8 @@ run_plan_internal <- function(design, plan, ms_options) {
 
     if (is.na(disag) || disag == "all") {
       lab <- if (is.na(disag)) NA_character_ else "all"
-      results[[i]] <- fn(design, ques, lab, lab, ms_options)
+      results[[i]] <- fn(design, ques, lab, lab, ms_options,
+                        result_format, digits)
     } else {
       lvls <- unique(.svy_data(design)[[disag]])
       results[[i]] <- purrr::map_dfr(lvls, function(lvl) {
@@ -130,7 +148,7 @@ run_plan_internal <- function(design, plan, ms_options) {
         } else {
           srvyr::filter(design, .data[[disag]] == lvl)
         }
-        fn(d_sub, ques, disag, lvl, ms_options)
+        fn(d_sub, ques, disag, lvl, ms_options, result_format, digits)
       })
     }
 
