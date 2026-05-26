@@ -59,9 +59,9 @@ single_select_svy <- function(design, ques, disag, level, ms_options = NULL,
   tibble::tibble(
     Var1    = as.character(res[[ques]]),
     Freq    = .format_prop(res$prop,     result_format, digits),
-    SE      = .scale_prop(res$prop_se,   result_format, digits),
-    CI_low  = .scale_prop(res$prop_low,  result_format, digits),
-    CI_high = .scale_prop(res$prop_upp,  result_format, digits),
+    SE      = .format_prop(res$prop_se,  result_format, digits),
+    CI_low  = .format_prop(res$prop_low, result_format, digits),
+    CI_high = .format_prop(res$prop_upp, result_format, digits),
     aggregation_method = "perc",
     variable = ques,
     count = res$cnt,
@@ -87,7 +87,7 @@ multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
     return(.empty_row(ques, "perc", disag, level, result_format))
   }
 
-  freq_na <- if (result_format == "percent_fmt") NA_character_ else NA_real_
+  na_val <- if (result_format == "percent_fmt") NA_character_ else NA_real_
 
   rows <- purrr::map_dfr(opts, function(opt) {
     vals <- .svy_data(design)[[opt]]
@@ -95,8 +95,8 @@ multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
     if (valid_n == 0) {
       return(tibble::tibble(
         Var1 = .option_label(ques, opt),
-        Freq = freq_na,
-        SE = NA_real_, CI_low = NA_real_, CI_high = NA_real_,
+        Freq = na_val,
+        SE = na_val, CI_low = na_val, CI_high = na_val,
         count = 0L, valid = 0L
       ))
     }
@@ -110,9 +110,9 @@ multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
     tibble::tibble(
       Var1    = .option_label(ques, opt),
       Freq    = .format_prop(r$prop,     result_format, digits),
-      SE      = .scale_prop(r$prop_se,   result_format, digits),
-      CI_low  = .scale_prop(r$prop_low,  result_format, digits),
-      CI_high = .scale_prop(r$prop_upp,  result_format, digits),
+      SE      = .format_prop(r$prop_se,  result_format, digits),
+      CI_low  = .format_prop(r$prop_low, result_format, digits),
+      CI_high = .format_prop(r$prop_upp, result_format, digits),
       count   = r$cnt,
       valid   = valid_n
     )
@@ -138,10 +138,10 @@ multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
 
   tibble::tibble(
     Var1 = NA_character_,
-    Freq    = .coerce_freq_if_fmt(as.numeric(res$val), result_format, digits),
-    SE      = as.numeric(res$val_se),
-    CI_low  = as.numeric(res$val_low),
-    CI_high = as.numeric(res$val_upp),
+    Freq    = .coerce_freq_if_fmt(as.numeric(res$val),     result_format, digits),
+    SE      = .coerce_freq_if_fmt(as.numeric(res$val_se),  result_format, digits),
+    CI_low  = .coerce_freq_if_fmt(as.numeric(res$val_low), result_format, digits),
+    CI_high = .coerce_freq_if_fmt(as.numeric(res$val_upp), result_format, digits),
     aggregation_method = method,
     variable = ques,
     count = valid_n, valid = valid_n,
@@ -203,9 +203,12 @@ stat_quantile_svy <- function(design, ques, disag, level, q, method,
     Var1 = NA_character_,
     Freq    = .coerce_freq_if_fmt(as.numeric(res[[qstem]]),
                                   result_format, digits),
-    SE      = as.numeric(res[[paste0(qstem, "_se")]]),
-    CI_low  = as.numeric(res[[paste0(qstem, "_low")]]),
-    CI_high = as.numeric(res[[paste0(qstem, "_upp")]]),
+    SE      = .coerce_freq_if_fmt(as.numeric(res[[paste0(qstem, "_se")]]),
+                                  result_format, digits),
+    CI_low  = .coerce_freq_if_fmt(as.numeric(res[[paste0(qstem, "_low")]]),
+                                  result_format, digits),
+    CI_high = .coerce_freq_if_fmt(as.numeric(res[[paste0(qstem, "_upp")]]),
+                                  result_format, digits),
     aggregation_method = method,
     variable = ques,
     count = valid_n, valid = valid_n,
@@ -226,7 +229,9 @@ stat_min_unweighted <- function(design, ques, disag, level, ms_options = NULL,
   tibble::tibble(
     Var1 = NA_character_,
     Freq = .coerce_freq_if_fmt(min(vals, na.rm = TRUE), result_format, digits),
-    SE = NA_real_, CI_low = NA_real_, CI_high = NA_real_,
+    SE = if (result_format == "percent_fmt") NA_character_ else NA_real_,
+    CI_low = if (result_format == "percent_fmt") NA_character_ else NA_real_,
+    CI_high = if (result_format == "percent_fmt") NA_character_ else NA_real_,
     aggregation_method = "min_unweighted",
     variable = ques,
     count = valid_n, valid = valid_n,
@@ -247,7 +252,9 @@ stat_max_unweighted <- function(design, ques, disag, level, ms_options = NULL,
   tibble::tibble(
     Var1 = NA_character_,
     Freq = .coerce_freq_if_fmt(max(vals, na.rm = TRUE), result_format, digits),
-    SE = NA_real_, CI_low = NA_real_, CI_high = NA_real_,
+    SE = if (result_format == "percent_fmt") NA_character_ else NA_real_,
+    CI_low = if (result_format == "percent_fmt") NA_character_ else NA_real_,
+    CI_high = if (result_format == "percent_fmt") NA_character_ else NA_real_,
     aggregation_method = "max_unweighted",
     variable = ques,
     count = valid_n, valid = valid_n,

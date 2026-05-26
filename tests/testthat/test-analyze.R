@@ -54,17 +54,28 @@ test_that("result_format = 'percent_fmt' returns character with %", {
                                          digits = 2))
 
   expect_type(res$Result, "character")
-  perc_rows <- res$Result[res$Aggregation_method == "perc"]
-  # All proportion rows end with "%" and parse back as a number 0-100.
-  expect_true(all(grepl("%$", perc_rows[!is.na(perc_rows)])))
-  numeric_part <- as.numeric(sub("%$", "", perc_rows[!is.na(perc_rows)]))
+  expect_type(res$SE, "character")
+  expect_type(res$CI_low, "character")
+  expect_type(res$CI_high, "character")
+
+  perc_rows <- res[res$Aggregation_method == "perc", ]
+  # All proportion-row values end with "%" across Result, SE, CI_low, CI_high.
+  for (col in c("Result", "SE", "CI_low", "CI_high")) {
+    vals <- perc_rows[[col]]
+    expect_true(all(grepl("%$", vals[!is.na(vals)])),
+                info = paste("column", col, "missing % suffix"))
+  }
+  numeric_part <- as.numeric(sub("%$", "", perc_rows$Result[!is.na(perc_rows$Result)]))
   expect_true(all(numeric_part >= 0 & numeric_part <= 100))
 
   # Non-proportion rows (mean / sum / median etc.) are still character but
-  # carry no "%" suffix.
-  mean_row <- res$Result[res$Aggregation_method == "mean" &
-                         res$Disaggregation == "all"][1]
-  expect_false(grepl("%$", mean_row))
+  # carry no "%" suffix on any of Result / SE / CI columns.
+  mean_row <- res[res$Aggregation_method == "mean" &
+                  res$Disaggregation == "all", ][1, ]
+  for (col in c("Result", "SE", "CI_low", "CI_high")) {
+    expect_false(grepl("%$", mean_row[[col]]),
+                 info = paste("non-proportion row gained % on", col))
+  }
 })
 
 test_that("digits argument is honored in percent mode", {

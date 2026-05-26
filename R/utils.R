@@ -100,15 +100,17 @@
 }
 
 # An "empty" aggregator row used when a variable is entirely NA. Same shape
-# as a real aggregator return so it can be rbind-stacked safely.
+# as a real aggregator return so it can be rbind-stacked safely. In
+# "percent_fmt" mode the numeric columns are character NA so types line up
+# with the formatted rows.
 .empty_row <- function(ques, method, disag, level, result_format = "proportion") {
-  freq_na <- if (result_format == "percent_fmt") NA_character_ else NA_real_
+  na_val <- if (result_format == "percent_fmt") NA_character_ else NA_real_
   tibble::tibble(
     Var1   = NA_character_,
-    Freq   = freq_na,
-    SE     = NA_real_,
-    CI_low = NA_real_,
-    CI_high= NA_real_,
+    Freq   = na_val,
+    SE     = na_val,
+    CI_low = na_val,
+    CI_high= na_val,
     aggregation_method = method,
     variable           = ques,
     count              = 0L,
