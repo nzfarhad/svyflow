@@ -1,0 +1,485 @@
+#' Single-indicator summary wrappers
+#'
+#' Ergonomic wrappers around the survey-design-aware aggregators for use on
+#' one indicator at a time. They build a one-row analysis plan, delegate to
+#' [analyze_survey()], and post-process the long output into a publication-
+#' ready tibble (column names tailored to the indicator, optional crosstab
+#' pivot when disaggregated).
+#'
+#' All wrappers accept a [srvyr::tbl_svy] design. The categorical wrappers
+#' return proportion / percentage estimates with `SE` / `CI_low` / `CI_high`
+#' / `Count` / `Denominator`. The numeric wrappers return the chosen
+#' statistic with the same auxiliary columns (except `Denominator`, which
+#' equals `Count` for raw quantities and is dropped).
+#'
+#' @param design A [srvyr::tbl_svy] survey design (typically from
+#'   [make_design()]).
+#' @param variable Character. The column to summarise.
+#' @param disaggregation Character or `NULL`. A grouping column name; pass
+#'   `NULL` (or `"all"`) for no disaggregation.
+#' @param variable_label Display label for `variable`. Used as the column
+#'   header for response/option values (categorical) or as the value of the
+#'   `Indicator` column (numeric). Falls back to `variable` when `NULL`.
+#' @param disaggregation_label Display label for `disaggregation`. Used as
+#'   the column header for the disaggregation column in long output. Falls
+#'   back to `disaggregation` when `NULL`.
+#' @param result_format,digits Passed through to [analyze_survey()]. See
+#'   that function's documentation. Categorical wrappers use them; numeric
+#'   wrappers accept `digits` only.
+#' @param crosstab If `TRUE` (and `disaggregation` is set), pivot the long
+#'   output to a wide table: rows = response / option values, columns =
+#'   disaggregation levels. SE / CI / Count are dropped from the wide view.
+#'   Categorical wrappers only.
+#' @param with_ci If `TRUE` (only meaningful when `crosstab = TRUE`),
+#'   format cells as `"estimate (CI_low–CI_high)"`. Categorical wrappers
+#'   only.
+#' @param result_only If `TRUE`, drop `SE` / `CI_low` / `CI_high` / `Count`
+#'   from the output. Numeric wrappers only.
+#' @param q For [summarize_quantile()] only: a single quantile in `[0, 1]`.
+#'
+#' @return A tibble of class `svyflow_summary`.
+#'
+#' @name summarize
+#' @seealso [analyze_survey()], [format_results()]
+NULL
+
+
+# ----------------------------------------------------------------------------
+# Internal helpers
+# ----------------------------------------------------------------------------
+
+# Build a one-row analysis_plan for a wrapper call.
+.one_row_plan <- function(variable, kobo_type, method = NA,
+                          disaggregation = NULL,
+                          variable_label = NULL,
+                          disaggregation_label = NULL) {
+  disag <- if (is.null(disaggregation)) "all" else disaggregation
+  tibble::tibble(
+    variable             = variable,
+    kobo_type            = kobo_type,
+    aggregation_method   = if (is.na(method)) NA_character_ else method,
+    disaggregation       = disag,
+    variable_label       = if (is.null(variable_label)) NA_character_
+                           else as.character(variable_label),
+    disaggregation_label = if (is.null(disaggregation_label)) NA_character_
+                           else as.character(disaggregation_label)
+  )
+}
+
+# Map (aggregation_method, q) -> human-readable label.
+.method_label <- function(method, q = NULL) {
+  switch(
+    method,
+    mean   = "Mean",
+    sum    = "Sum",
+    median = "Median",
+    firstq = "Q25",
+    thirdq = "Q75",
+    min    = "Min",
+    max    = "Max",
+    quantile = sprintf("Q%02d", round(as.numeric(q) * 100)),
+    method
+  )
+}
+
+# Header for the Result column in categorical wrappers.
+.result_column_name <- function(result_format) {
+  if (identical(result_format, "proportion")) "Proportion" else "Percentage"
+}
+
+# Rename / drop columns for the categorical long-output schema.
+.rename_categorical <- function(long, variable, variable_label,
+                                disaggregation, disaggregation_label,
+                                result_format) {
+  has_disag <- !is.null(disaggregation) && !identical(disaggregation, "all")
+  var_col   <- if (is.null(variable_label)) variable else variable_label
+  result_col <- .result_column_name(result_format)
+
+  out <- long
+  # Drop columns that the wrapper considers redundant for single-indicator use.
+  out$Question           <- NULL
+  out$Aggregation_method <- NULL
+  out$repeat_for         <- NULL
+  out$Disaggregation     <- NULL
+  if (!has_disag) out$Disaggregation_level <- NULL
+
+  # Rename Response -> <variable_label>.
+  names(out)[names(out) == "Response"] <- var_col
+  # Rename Result -> Proportion / Percentage.
+  names(out)[names(out) == "Result"] <- result_col
+
+  if (has_disag) {
+    disag_col <- if (is.null(disaggregation_label)) disaggregation
+                 else disaggregation_label
+    names(out)[names(out) == "Disaggregation_level"] <- disag_col
+    # Reorder: indicator col, disagg col, then stat cols.
+    stat_cols <- setdiff(names(out), c(var_col, disag_col))
+    out <- out[, c(var_col, disag_col, stat_cols), drop = FALSE]
+  } else {
+    stat_cols <- setdiff(names(out), var_col)
+    out <- out[, c(var_col, stat_cols), drop = FALSE]
+  }
+  out
+}
+
+# Format a single "estimate (low–high)" cell. Handles both numeric input
+# (proportion/percent) and character input (percent_fmt, which already
+# carries "%"). digits controls decimal places for numeric input.
+.format_ci_cell <- function(result, ci_low, ci_high, digits) {
+  fmt_num <- function(x) {
+    d <- if (is.null(digits)) 1 else digits
+    formatC(x, format = "f", digits = d)
+  }
+  to_chr <- function(x) {
+    if (is.character(x)) x else fmt_num(as.numeric(x))
+  }
+  r  <- to_chr(result)
+  lo <- to_chr(ci_low)
+  hi <- to_chr(ci_high)
+  ifelse(is.na(result) | is.na(ci_low) | is.na(ci_high),
+         NA_character_,
+         paste0(r, " (", lo, "–", hi, ")"))
+}
+
+# Pivot a long-form categorical table to wide. `long` has columns
+# var_col, disag_col, Result, SE, CI_low, CI_high, Count, Denominator
+# (Result column may already be renamed to Proportion/Percentage; we accept
+# either).
+.crosstab_pivot <- function(long, var_col, disag_col, with_ci, digits) {
+  # Pull the value column name (Proportion or Percentage).
+  value_col <- intersect(c("Proportion", "Percentage", "Result"), names(long))[1]
+  if (is.na(value_col)) stop("crosstab_pivot: no value column found in input")
+
+  if (with_ci) {
+    long$.cell <- .format_ci_cell(long[[value_col]],
+                                  long$CI_low, long$CI_high, digits)
+    keep <- c(var_col, disag_col, ".cell")
+    wide <- tidyr::pivot_wider(long[, keep, drop = FALSE],
+                               names_from  = !!rlang::sym(disag_col),
+                               values_from = ".cell")
+  } else {
+    keep <- c(var_col, disag_col, value_col)
+    wide <- tidyr::pivot_wider(long[, keep, drop = FALSE],
+                               names_from  = !!rlang::sym(disag_col),
+                               values_from = !!rlang::sym(value_col))
+  }
+  wide
+}
+
+# Rename / drop columns for the numeric long-output schema.
+.rename_numeric <- function(long, variable, variable_label,
+                            disaggregation, disaggregation_label,
+                            method_label, result_only) {
+  has_disag <- !is.null(disaggregation) && !identical(disaggregation, "all")
+  var_label <- if (is.null(variable_label)) variable else variable_label
+
+  out <- long
+  # Indicator column: replace Question values with the label.
+  out$Question <- as.character(var_label)
+  names(out)[names(out) == "Question"] <- "Indicator"
+
+  # Rename Result -> method (Mean / Sum / etc.).
+  names(out)[names(out) == "Result"] <- method_label
+
+  # Drop columns not used in numeric output.
+  out$Response           <- NULL
+  out$Aggregation_method <- NULL
+  out$repeat_for         <- NULL
+  out$Denominator        <- NULL  # equals Count for raw quantities
+  out$Disaggregation     <- NULL
+
+  if (has_disag) {
+    disag_col <- if (is.null(disaggregation_label)) disaggregation
+                 else disaggregation_label
+    names(out)[names(out) == "Disaggregation_level"] <- disag_col
+  } else {
+    out$Disaggregation_level <- NULL
+  }
+
+  if (result_only) {
+    keep <- c("Indicator",
+              if (has_disag)
+                if (is.null(disaggregation_label)) disaggregation
+                else disaggregation_label,
+              method_label)
+    out <- out[, keep, drop = FALSE]
+  } else {
+    # Reorder: Indicator, disagg (if any), method, SE, CI_low, CI_high, Count.
+    front <- c("Indicator",
+               if (has_disag)
+                 if (is.null(disaggregation_label)) disaggregation
+                 else disaggregation_label,
+               method_label)
+    rest <- setdiff(names(out), front)
+    out <- out[, c(front, rest), drop = FALSE]
+  }
+  out
+}
+
+# Final class wrap; mirrors new_svyflow_results() but with a different class.
+# The input frequently carries an inherited "svyflow_results" class (it's the
+# return type of analyze_survey()), but the rename helpers have dropped the
+# columns that print.svyflow_results expects. Strip that class so NextMethod
+# dispatches straight to print.tbl_df.
+new_svyflow_summary <- function(x) {
+  if (!inherits(x, "tbl_df")) x <- tibble::as_tibble(x)
+  class(x) <- setdiff(class(x), "svyflow_results")
+  class(x) <- c("svyflow_summary", class(x))
+  x
+}
+
+# Shared dispatcher used by all categorical wrappers.
+.summarize_categorical <- function(design, variable, kobo_type,
+                                   disaggregation, variable_label,
+                                   disaggregation_label,
+                                   result_format, digits,
+                                   crosstab, with_ci) {
+  plan <- .one_row_plan(variable, kobo_type,
+                        disaggregation = disaggregation,
+                        variable_label = variable_label,
+                        disaggregation_label = disaggregation_label)
+  long <- analyze_survey(design, plan,
+                         result_format = result_format,
+                         digits        = digits,
+                         use_labels    = TRUE)
+
+  renamed <- .rename_categorical(long, variable, variable_label,
+                                 disaggregation, disaggregation_label,
+                                 result_format)
+
+  if (isTRUE(crosstab) && !is.null(disaggregation) &&
+      !identical(disaggregation, "all")) {
+    var_col   <- if (is.null(variable_label)) variable else variable_label
+    disag_col <- if (is.null(disaggregation_label)) disaggregation
+                 else disaggregation_label
+    wide <- .crosstab_pivot(renamed, var_col, disag_col, with_ci, digits)
+    return(new_svyflow_summary(wide))
+  }
+
+  new_svyflow_summary(renamed)
+}
+
+# Shared dispatcher used by all numeric wrappers.
+.summarize_numeric <- function(design, variable, method, q,
+                               disaggregation, variable_label,
+                               disaggregation_label,
+                               digits, result_only) {
+  plan <- .one_row_plan(variable, "integer", method = method,
+                        disaggregation = disaggregation,
+                        variable_label = variable_label,
+                        disaggregation_label = disaggregation_label)
+  long <- analyze_survey(design, plan,
+                         result_format = "proportion",
+                         digits        = digits,
+                         use_labels    = TRUE)
+  method_label <- .method_label(if (is.null(q)) method else "quantile", q = q)
+  renamed <- .rename_numeric(long, variable, variable_label,
+                             disaggregation, disaggregation_label,
+                             method_label, result_only)
+  new_svyflow_summary(renamed)
+}
+
+
+# ----------------------------------------------------------------------------
+# Public categorical wrappers
+# ----------------------------------------------------------------------------
+
+#' @rdname summarize
+#' @export
+summarize_select_one <- function(design, variable,
+                                 disaggregation = NULL,
+                                 variable_label = NULL,
+                                 disaggregation_label = NULL,
+                                 result_format = "proportion",
+                                 digits = 1,
+                                 crosstab = FALSE,
+                                 with_ci  = FALSE) {
+  .summarize_categorical(design, variable, "select_one",
+                         disaggregation, variable_label,
+                         disaggregation_label,
+                         result_format, digits, crosstab, with_ci)
+}
+
+#' @rdname summarize
+#' @export
+summarize_select_multiple <- function(design, variable,
+                                      disaggregation = NULL,
+                                      variable_label = NULL,
+                                      disaggregation_label = NULL,
+                                      result_format = "proportion",
+                                      digits = 1,
+                                      crosstab = FALSE,
+                                      with_ci  = FALSE) {
+  .summarize_categorical(design, variable, "select_multiple",
+                         disaggregation, variable_label,
+                         disaggregation_label,
+                         result_format, digits, crosstab, with_ci)
+}
+
+
+# ----------------------------------------------------------------------------
+# Public numeric wrappers
+# ----------------------------------------------------------------------------
+
+#' @rdname summarize
+#' @export
+summarize_mean <- function(design, variable,
+                           disaggregation = NULL,
+                           variable_label = NULL,
+                           disaggregation_label = NULL,
+                           digits = NULL,
+                           result_only = FALSE) {
+  .summarize_numeric(design, variable, "mean", q = NULL,
+                     disaggregation, variable_label,
+                     disaggregation_label, digits, result_only)
+}
+
+#' @rdname summarize
+#' @export
+summarize_sum <- function(design, variable,
+                          disaggregation = NULL,
+                          variable_label = NULL,
+                          disaggregation_label = NULL,
+                          digits = NULL,
+                          result_only = FALSE) {
+  .summarize_numeric(design, variable, "sum", q = NULL,
+                     disaggregation, variable_label,
+                     disaggregation_label, digits, result_only)
+}
+
+#' @rdname summarize
+#' @export
+summarize_median <- function(design, variable,
+                             disaggregation = NULL,
+                             variable_label = NULL,
+                             disaggregation_label = NULL,
+                             digits = NULL,
+                             result_only = FALSE) {
+  .summarize_numeric(design, variable, "median", q = NULL,
+                     disaggregation, variable_label,
+                     disaggregation_label, digits, result_only)
+}
+
+#' @rdname summarize
+#' @export
+summarize_quantile <- function(design, variable, q,
+                               disaggregation = NULL,
+                               variable_label = NULL,
+                               disaggregation_label = NULL,
+                               digits = NULL,
+                               result_only = FALSE) {
+  if (!is.numeric(q) || length(q) != 1 || is.na(q) || q < 0 || q > 1) {
+    stop("`q` must be a single numeric in [0, 1].")
+  }
+  # Dispatch to a canonical method when q matches one of the built-ins;
+  # otherwise use the firstq/thirdq path is not appropriate. We always go
+  # through the median branch by writing a one-off plan row with
+  # method = "median" then patch the label — but the dispatcher does not
+  # support arbitrary q. Use firstq for q=0.25 / thirdq for q=0.75 /
+  # median for q=0.5; otherwise temporarily handle via the median plan row
+  # AFTER calling the underlying aggregator directly.
+  if (isTRUE(all.equal(q, 0.25))) {
+    method <- "firstq"
+  } else if (isTRUE(all.equal(q, 0.5))) {
+    method <- "median"
+  } else if (isTRUE(all.equal(q, 0.75))) {
+    method <- "thirdq"
+  } else {
+    return(.summarize_quantile_arbitrary(design, variable, q,
+                                         disaggregation, variable_label,
+                                         disaggregation_label,
+                                         digits, result_only))
+  }
+  res <- .summarize_numeric(design, variable, method, q = q,
+                            disaggregation, variable_label,
+                            disaggregation_label, digits, result_only)
+  res
+}
+
+# Arbitrary quantile path: bypass the analyze_survey/plan dispatcher (which
+# only knows the named quartile methods) and call stat_quantile_svy directly
+# with the requested q. Reuses the rename/reshape helpers.
+.summarize_quantile_arbitrary <- function(design, variable, q,
+                                          disaggregation, variable_label,
+                                          disaggregation_label,
+                                          digits, result_only) {
+  method_label <- .method_label("quantile", q = q)
+  has_disag <- !is.null(disaggregation) && !identical(disaggregation, "all")
+
+  build_row <- function(d_sub, disag, lvl) {
+    stat_quantile_svy(d_sub, variable, disag, lvl, q, method_label,
+                      ms_options = NULL,
+                      result_format = "proportion", digits = digits)
+  }
+
+  rows <- if (has_disag) {
+    df <- .svy_data(design)
+    lvls <- unique(df[[disaggregation]])
+    purrr::map_dfr(lvls, function(lvl) {
+      d_sub <- if (is.na(lvl)) {
+        srvyr::filter(design, is.na(.data[[disaggregation]]))
+      } else {
+        srvyr::filter(design, .data[[disaggregation]] == lvl)
+      }
+      build_row(d_sub, disaggregation, lvl)
+    })
+  } else {
+    build_row(design, NA_character_, NA_character_)
+  }
+
+  # Reshape into the analyze_survey long schema, then reuse the numeric
+  # rename helper.
+  long <- tibble::tibble(
+    Disaggregation       = rows$disaggregation,
+    Disaggregation_level = rows$disagg_level,
+    Question             = if (is.null(variable_label)) variable
+                           else as.character(variable_label),
+    Response             = rows$Var1,
+    Aggregation_method   = rows$aggregation_method,
+    Result               = rows$Freq,
+    SE                   = rows$SE,
+    CI_low               = rows$CI_low,
+    CI_high              = rows$CI_high,
+    Count                = rows$count,
+    Denominator          = rows$valid,
+    repeat_for           = NA_character_
+  )
+  renamed <- .rename_numeric(long, variable, variable_label,
+                             disaggregation, disaggregation_label,
+                             method_label, result_only)
+  new_svyflow_summary(renamed)
+}
+
+#' @rdname summarize
+#' @export
+summarize_min <- function(design, variable,
+                          disaggregation = NULL,
+                          variable_label = NULL,
+                          disaggregation_label = NULL,
+                          digits = NULL,
+                          result_only = FALSE) {
+  .summarize_numeric(design, variable, "min", q = NULL,
+                     disaggregation, variable_label,
+                     disaggregation_label, digits, result_only)
+}
+
+#' @rdname summarize
+#' @export
+summarize_max <- function(design, variable,
+                          disaggregation = NULL,
+                          variable_label = NULL,
+                          disaggregation_label = NULL,
+                          digits = NULL,
+                          result_only = FALSE) {
+  .summarize_numeric(design, variable, "max", q = NULL,
+                     disaggregation, variable_label,
+                     disaggregation_label, digits, result_only)
+}
+
+
+#' @export
+print.svyflow_summary <- function(x, ...) {
+  cli::cli_text("{.cls svyflow_summary}: {.val {nrow(x)}} row{?s}, ",
+                "{.val {ncol(x)}} column{?s}")
+  NextMethod()
+}
