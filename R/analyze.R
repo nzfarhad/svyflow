@@ -117,7 +117,7 @@ analyze_survey <- function(design,
   out <- out[, names(.OUT_RENAME), drop = FALSE]
   names(out) <- unname(.OUT_RENAME)
 
-  new_svyflow_results(out)
+  new_svyflow_results(out, result_format = result_format, digits = digits)
 }
 
 # Walk an analysis plan against a single design. Internal helper; the public
