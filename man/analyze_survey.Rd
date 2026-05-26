@@ -9,7 +9,8 @@ analyze_survey(
   analysis_plan,
   multi_response_sep = "; ",
   result_format = "proportion",
-  digits = 1
+  digits = 1,
+  use_labels = TRUE
 )
 }
 \arguments{
@@ -24,6 +25,12 @@ analyze_survey(
 one of \code{"mean"}, \code{"median"}, \code{"sum"}, \code{"firstq"}, \code{"thirdq"},
 \code{"min"}, \code{"max"}.
 \item \code{disaggregation}: a column name, \code{"all"}, or \code{NA}.
+\item \code{variable_label} (optional): display label substituted into the
+\code{Question} column when \code{use_labels = TRUE}. \code{NA} falls back to
+\code{variable}.
+\item \code{disaggregation_label} (optional): display label substituted into
+the \code{Disaggregation} column when \code{use_labels = TRUE}. \code{NA} falls
+back to \code{disaggregation} (including the literal \code{"all"}).
 \item \code{repeat_for} (optional): a column name to add a second
 disaggregation axis, or \code{NA}.
 }}
@@ -43,6 +50,12 @@ values regardless of this setting.}
 Applied to numeric outputs in the two percent modes; ignored in
 \code{"proportion"} mode so the default does not crush precision. Default
 \code{1}.}
+
+\item{use_labels}{If \code{TRUE} (the default), substitute \code{variable_label}
+into the output's \code{Question} column and \code{disaggregation_label} into
+\code{Disaggregation} whenever those columns exist on the plan and the
+per-row value is not \code{NA}. If \code{FALSE}, the raw column names are used.
+Plans without the label columns are unaffected (backward compatible).}
 }
 \value{
 A \code{\link{svyflow_results}} tibble with columns:

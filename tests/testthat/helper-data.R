@@ -71,3 +71,18 @@ make_test_plan <- function() {
     "hh_size",  "integer",          "mean",              "gender",        "province"
   )
 }
+
+# Same as make_test_plan() but with the optional `variable_label` and
+# `disaggregation_label` columns populated. NA labels are intentional —
+# they exercise the per-row fallback path in analyze_survey(use_labels).
+make_test_plan_labelled <- function() {
+  tibble::tribble(
+    ~variable,  ~kobo_type,         ~aggregation_method, ~disaggregation, ~variable_label,    ~disaggregation_label, ~repeat_for,
+    "gender",   "select_one",       NA,                  "all",           "Gender",           NA,                    NA,
+    "edu_lvl",  "select_one",       NA,                  "all",           "Education level",  NA,                    NA,
+    "edu_lvl",  "select_one",       NA,                  "gender",        "Education level",  "Gender",              NA,
+    "hh_needs", "select_multiple",  NA,                  "all",           "Household needs",  NA,                    NA,
+    "hh_size",  "integer",          "mean",              "all",           NA,                 NA,                    NA,
+    "hh_size",  "integer",          "mean",              "gender",        "Household size",   "Gender",              NA
+  )
+}

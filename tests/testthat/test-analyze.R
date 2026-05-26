@@ -229,3 +229,52 @@ test_that("validate_plan rejects unknown kobo_type and missing variable", {
   )
   expect_error(validate_plan(ap_bad_method, df), "invalid aggregation_method")
 })
+
+test_that("use_labels = TRUE (default) substitutes labels into Question and Disaggregation", {
+  df <- make_test_data(n = 200)
+  ap <- make_test_plan_labelled()
+  res <- suppressWarnings(analyze_survey(make_design(df), ap))
+
+  # gender row: variable_label = "Gender", disaggregation_label = NA -> "all".
+  gender_rows <- res[res$Question == "Gender", ]
+  expect_gt(nrow(gender_rows), 0)
+  expect_true(all(gender_rows$Disaggregation == "all"))
+
+  # edu_lvl x gender row uses both labels.
+  ed_by_gender <- res[res$Question == "Education level" &
+                      res$Disaggregation == "Gender", ]
+  expect_gt(nrow(ed_by_gender), 0)
+  # Levels of the disaggregation (data values) are NOT relabeled.
+  expect_true(all(ed_by_gender$Disaggregation_level %in% unique(df$gender)))
+
+  # NA variable_label falls back to the raw column name ("hh_size").
+  hh_size_all <- res[res$Question == "hh_size" &
+                     res$Disaggregation == "all", ]
+  expect_gt(nrow(hh_size_all), 0)
+})
+
+test_that("use_labels = FALSE leaves Question / Disaggregation as raw names", {
+  df <- make_test_data(n = 200)
+  ap <- make_test_plan_labelled()
+  res <- suppressWarnings(analyze_survey(make_design(df), ap,
+                                         use_labels = FALSE))
+
+  # No "Gender" label leaks through; raw "gender" remains.
+  expect_equal(sum(res$Question == "Gender"), 0)
+  expect_equal(sum(res$Disaggregation == "Gender"), 0)
+  expect_gt(sum(res$Question == "gender"), 0)
+  expect_gt(sum(res$Disaggregation == "gender"), 0)
+})
+
+test_that("plans without label columns are unaffected (backward compat)", {
+  df <- make_test_data(n = 200)
+  ap <- make_test_plan()  # no label columns
+  res_with    <- suppressWarnings(analyze_survey(make_design(df), ap,
+                                                 use_labels = TRUE))
+  res_without <- suppressWarnings(analyze_survey(make_design(df), ap,
+                                                 use_labels = FALSE))
+  # Both branches should produce the same Question / Disaggregation values
+  # when there is nothing to substitute.
+  expect_equal(res_with$Question, res_without$Question)
+  expect_equal(res_with$Disaggregation, res_without$Disaggregation)
+})
