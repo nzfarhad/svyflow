@@ -1,0 +1,9 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^CLAUDE\.md$
+^legacy$
+^test_Analysis_svy\.R$
+^Analysis_svy\.R$
+^Analysis_double_disagg_2\.R$
+^\.github$
+^\.claude$

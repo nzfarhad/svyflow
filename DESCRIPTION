@@ -1,0 +1,34 @@
+Package: svyflow
+Title: Survey-Design-Aware Descriptive Analysis Driven by an Analysis Plan
+Version: 0.1.0
+Authors@R:
+    person(given  = "Farhad",
+           family = "Nabizada",
+           role   = c("aut", "cre"),
+           email  = "farhad.nabizada@atr-consulting.com")
+Description: Produces design-correct descriptive statistics (proportions,
+    means, totals, quantiles, min, max) for survey data driven by an
+    analysis-plan data frame. Estimates use the 'srvyr' / 'survey' engine
+    so weights, strata and clusters are respected; standard errors and
+    95% confidence intervals are reported alongside point estimates.
+    Handles Kobo / SurveyCTO style multi-select variables, single and
+    double disaggregation, and is built to be extended with output
+    formatters (Excel, HTML, etc.) in later releases.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Depends:
+    R (>= 4.1.0)
+Imports:
+    cli,
+    dplyr,
+    purrr,
+    rlang,
+    srvyr,
+    stats,
+    survey,
+    tibble
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3

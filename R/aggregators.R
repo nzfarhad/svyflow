@@ -1,0 +1,225 @@
+#' Per-type aggregators
+#'
+#' These functions compute one row (or a few rows for multi-response /
+#' grouped proportions) of analysis output. They all share the same
+#' signature `(design, ques, disag, level, ms_options)` and return a tibble
+#' with a uniform 11-column shape (the internal `.AGG_COLS` vector).
+#'
+#' End users normally do not call these directly - they are invoked by
+#' [analyze_survey()] via the internal `pick_aggregator()`. They are
+#' documented as a group because their contract is what new aggregators
+#' must match.
+#'
+#' @param design A [srvyr::tbl_svy] survey design.
+#' @param ques Character. The variable name to aggregate.
+#' @param disag Character. The disaggregation column name, or `"all"` /
+#'   `NA` when none.
+#' @param level The level of the disaggregation column being filtered to,
+#'   or `"all"` / `NA` when none.
+#' @param ms_options Named list of multi-select option columns, as built by
+#'   [expand_multiselect()] / [detect_ms_options()]. Only consumed by
+#'   [multi_select_svy()]; ignored by the others (kept on the signature
+#'   for dispatcher uniformity).
+#'
+#' @return A tibble with columns `Var1, Freq, SE, CI_low, CI_high,
+#'   aggregation_method, variable, count, valid, disaggregation,
+#'   disagg_level`.
+#'
+#' @name aggregators
+#' @keywords internal
+NULL
+
+#' @rdname aggregators
+#' @keywords internal
+single_select_svy <- function(design, ques, disag, level, ms_options = NULL) {
+  vals <- .svy_data(design)[[ques]]
+  valid_n <- sum(!is.na(vals))
+  if (valid_n == 0) return(.empty_row(ques, "perc", disag, level))
+
+  d <- srvyr::filter(design, !is.na(.data[[ques]]))
+  res <- dplyr::summarise(
+    srvyr::group_by(d, !!rlang::sym(ques)),
+    prop = srvyr::survey_mean(vartype = c("se", "ci")),
+    cnt  = srvyr::unweighted(dplyr::n())
+  )
+
+  tibble::tibble(
+    Var1    = as.character(res[[ques]]),
+    Freq    = res$prop     * 100,
+    SE      = res$prop_se  * 100,
+    CI_low  = res$prop_low * 100,
+    CI_high = res$prop_upp * 100,
+    aggregation_method = "perc",
+    variable = ques,
+    count = res$cnt,
+    valid = valid_n,
+    disaggregation = as.character(disag),
+    disagg_level   = as.character(level)
+  )
+}
+
+#' @rdname aggregators
+#' @keywords internal
+multi_select_svy <- function(design, ques, disag, level, ms_options = NULL) {
+  if (is.null(ms_options) || is.null(ms_options[[ques]])) {
+    ms_options <- list()
+    ms_options[[ques]] <- detect_ms_options(.svy_data(design), ques)[[ques]]
+  }
+  opts <- ms_options[[ques]]
+  if (length(opts) == 0) {
+    warning("multi_select_svy: no expanded binary columns found for '", ques,
+            "'. Run expand_multiselect() first.")
+    return(.empty_row(ques, "perc", disag, level))
+  }
+
+  rows <- purrr::map_dfr(opts, function(opt) {
+    vals <- .svy_data(design)[[opt]]
+    valid_n <- sum(!is.na(vals))
+    if (valid_n == 0) {
+      return(tibble::tibble(
+        Var1 = .option_label(ques, opt),
+        Freq = NA_real_, SE = NA_real_, CI_low = NA_real_, CI_high = NA_real_,
+        count = 0L, valid = 0L
+      ))
+    }
+    d <- srvyr::filter(design, !is.na(.data[[opt]]))
+    r <- dplyr::summarise(
+      d,
+      prop = srvyr::survey_mean(as.numeric(.data[[opt]]),
+                                vartype = c("se", "ci"), na.rm = TRUE),
+      cnt  = srvyr::unweighted(sum(.data[[opt]] == 1, na.rm = TRUE))
+    )
+    tibble::tibble(
+      Var1    = .option_label(ques, opt),
+      Freq    = r$prop     * 100,
+      SE      = r$prop_se  * 100,
+      CI_low  = r$prop_low * 100,
+      CI_high = r$prop_upp * 100,
+      count   = r$cnt,
+      valid   = valid_n
+    )
+  })
+
+  rows$aggregation_method <- "perc"
+  rows$variable           <- ques
+  rows$disaggregation     <- as.character(disag)
+  rows$disagg_level       <- as.character(level)
+  rows[, .AGG_COLS, drop = FALSE]
+}
+
+# Shared body for survey_mean / survey_total. The caller supplies the actual
+# srvyr summariser; this helper handles validity-checking and tibble assembly.
+.summary_stat <- function(design, ques, disag, level, method, summariser) {
+  vals <- .svy_data(design)[[ques]]
+  valid_n <- sum(!is.na(suppressWarnings(as.numeric(vals))))
+  if (valid_n == 0) return(.empty_row(ques, method, disag, level))
+
+  d <- srvyr::filter(design, !is.na(.data[[ques]]))
+  res <- summariser(d, ques)
+
+  tibble::tibble(
+    Var1 = NA_character_,
+    Freq    = as.numeric(res$val),
+    SE      = as.numeric(res$val_se),
+    CI_low  = as.numeric(res$val_low),
+    CI_high = as.numeric(res$val_upp),
+    aggregation_method = method,
+    variable = ques,
+    count = valid_n, valid = valid_n,
+    disaggregation = as.character(disag),
+    disagg_level   = as.character(level)
+  )
+}
+
+#' @rdname aggregators
+#' @keywords internal
+stat_mean_svy <- function(design, ques, disag, level, ms_options = NULL) {
+  .summary_stat(design, ques, disag, level, "mean", function(d, q) {
+    dplyr::summarise(d,
+      val = srvyr::survey_mean(as.numeric(.data[[q]]),
+                               vartype = c("se", "ci"), na.rm = TRUE)
+    )
+  })
+}
+
+#' @rdname aggregators
+#' @keywords internal
+stat_sum_svy <- function(design, ques, disag, level, ms_options = NULL) {
+  .summary_stat(design, ques, disag, level, "sum", function(d, q) {
+    dplyr::summarise(d,
+      val = srvyr::survey_total(as.numeric(.data[[q]]),
+                                vartype = c("se", "ci"), na.rm = TRUE)
+    )
+  })
+}
+
+#' @rdname aggregators
+#' @param q Numeric, single quantile in `[0, 1]`.
+#' @param method Aggregation label written into `aggregation_method`
+#'   (e.g. `"median"`, `"1st_Qu"`).
+#' @keywords internal
+stat_quantile_svy <- function(design, ques, disag, level, q, method,
+                              ms_options = NULL) {
+  vals <- .svy_data(design)[[ques]]
+  valid_n <- sum(!is.na(suppressWarnings(as.numeric(vals))))
+  if (valid_n == 0) return(.empty_row(ques, method, disag, level))
+
+  d <- srvyr::filter(design, !is.na(.data[[ques]]))
+  res <- dplyr::summarise(
+    d,
+    val = srvyr::survey_quantile(as.numeric(.data[[ques]]),
+                                 quantiles = q,
+                                 vartype   = c("se", "ci"),
+                                 na.rm     = TRUE)
+  )
+  qstem <- grep("^val_q\\d+$", names(res), value = TRUE)[1]
+
+  tibble::tibble(
+    Var1 = NA_character_,
+    Freq    = as.numeric(res[[qstem]]),
+    SE      = as.numeric(res[[paste0(qstem, "_se")]]),
+    CI_low  = as.numeric(res[[paste0(qstem, "_low")]]),
+    CI_high = as.numeric(res[[paste0(qstem, "_upp")]]),
+    aggregation_method = method,
+    variable = ques,
+    count = valid_n, valid = valid_n,
+    disaggregation = as.character(disag),
+    disagg_level   = as.character(level)
+  )
+}
+
+#' @rdname aggregators
+#' @keywords internal
+stat_min_unweighted <- function(design, ques, disag, level, ms_options = NULL) {
+  vals <- suppressWarnings(as.numeric(.svy_data(design)[[ques]]))
+  valid_n <- sum(!is.na(vals))
+  if (valid_n == 0) return(.empty_row(ques, "min_unweighted", disag, level))
+  tibble::tibble(
+    Var1 = NA_character_,
+    Freq = min(vals, na.rm = TRUE),
+    SE = NA_real_, CI_low = NA_real_, CI_high = NA_real_,
+    aggregation_method = "min_unweighted",
+    variable = ques,
+    count = valid_n, valid = valid_n,
+    disaggregation = as.character(disag),
+    disagg_level   = as.character(level)
+  )
+}
+
+#' @rdname aggregators
+#' @keywords internal
+stat_max_unweighted <- function(design, ques, disag, level, ms_options = NULL) {
+  vals <- suppressWarnings(as.numeric(.svy_data(design)[[ques]]))
+  valid_n <- sum(!is.na(vals))
+  if (valid_n == 0) return(.empty_row(ques, "max_unweighted", disag, level))
+  tibble::tibble(
+    Var1 = NA_character_,
+    Freq = max(vals, na.rm = TRUE),
+    SE = NA_real_, CI_low = NA_real_, CI_high = NA_real_,
+    aggregation_method = "max_unweighted",
+    variable = ques,
+    count = valid_n, valid = valid_n,
+    disaggregation = as.character(disag),
+    disagg_level   = as.character(level)
+  )
+}
