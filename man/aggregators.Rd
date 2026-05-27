@@ -18,7 +18,8 @@ single_select_svy(
   level,
   ms_options = NULL,
   result_format = "proportion",
-  digits = 1
+  digits = 1,
+  ci = ci_opts()
 )
 
 multi_select_svy(
@@ -28,7 +29,8 @@ multi_select_svy(
   level,
   ms_options = NULL,
   result_format = "proportion",
-  digits = 1
+  digits = 1,
+  ci = ci_opts()
 )
 
 stat_mean_svy(
@@ -38,7 +40,8 @@ stat_mean_svy(
   level,
   ms_options = NULL,
   result_format = "proportion",
-  digits = 1
+  digits = 1,
+  ci = ci_opts()
 )
 
 stat_sum_svy(
@@ -48,7 +51,8 @@ stat_sum_svy(
   level,
   ms_options = NULL,
   result_format = "proportion",
-  digits = 1
+  digits = 1,
+  ci = ci_opts()
 )
 
 stat_quantile_svy(
@@ -60,7 +64,8 @@ stat_quantile_svy(
   method,
   ms_options = NULL,
   result_format = "proportion",
-  digits = 1
+  digits = 1,
+  ci = ci_opts()
 )
 
 stat_min_unweighted(
@@ -70,7 +75,8 @@ stat_min_unweighted(
   level,
   ms_options = NULL,
   result_format = "proportion",
-  digits = 1
+  digits = 1,
+  ci = ci_opts()
 )
 
 stat_max_unweighted(
@@ -80,7 +86,8 @@ stat_max_unweighted(
   level,
   ms_options = NULL,
   result_format = "proportion",
-  digits = 1
+  digits = 1,
+  ci = ci_opts()
 )
 }
 \arguments{
@@ -110,6 +117,13 @@ do coerce \code{Freq} to character in \code{"percent_fmt"} so the final
 \item{digits}{Non-negative numeric scalar, or \code{NULL} for no rounding.
 Applied to \code{Freq} / \code{SE} / \verb{CI_*} in the two percent modes; ignored
 in \code{"proportion"} mode to keep raw precision. Default \code{1}.}
+
+\item{ci}{A \code{\link[=ci_opts]{ci_opts()}} bundle controlling the confidence-interval
+method (level, df, proportion method, quantile interval). Defaults
+to \code{ci_opts()}, which reproduces the historical behaviour. Only the
+knobs relevant to a given aggregator are read (\code{prop_method} by the
+proportion aggregators, \code{interval_type} / \code{qrule} by the quantile
+one); the rest accept it for signature uniformity.}
 
 \item{q}{Numeric, single quantile in \verb{[0, 1]}.}
 

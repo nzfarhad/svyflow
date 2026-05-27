@@ -13,7 +13,8 @@ summarize_select_one(
   result_format = "proportion",
   digits = 1,
   crosstab = FALSE,
-  with_ci = FALSE
+  with_ci = FALSE,
+  ci = ci_opts()
 )
 }
 \arguments{
@@ -45,6 +46,12 @@ dropped from the wide view.}
 
 \item{with_ci}{If \code{TRUE} (only meaningful when \code{crosstab = TRUE}),
 format wide-table cells as \code{"estimate (CI_low-CI_high)"}.}
+
+\item{ci}{A \code{\link[=ci_opts]{ci_opts()}} bundle controlling the confidence-interval
+method. For proportions the relevant knob is \code{prop_method} (e.g.
+\code{ci_opts(prop_method = "logit")} for bounded intervals on rare
+outcomes), plus the universal \code{ci_level} / \code{df}. Defaults to
+\code{ci_opts()} (95\% t-interval, plain Wald proportions).}
 }
 \value{
 A tibble of class \code{svyflow_summary}. Schema depends on

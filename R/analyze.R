@@ -43,6 +43,13 @@
 #'   `Disaggregation` whenever those columns exist on the plan and the
 #'   per-row value is not `NA`. If `FALSE`, the raw column names are used.
 #'   Plans without the label columns are unaffected (backward compatible).
+#' @param ci A [ci_opts()] bundle controlling the confidence-interval
+#'   method (confidence level, degrees of freedom, proportion CI method,
+#'   quantile interval). Defaults to `ci_opts()`, which reproduces the
+#'   historical behaviour (95% t-interval on the design df, plain Wald
+#'   proportions). The method-specific knobs only affect the rows they
+#'   apply to (`prop_method` -> `select_one` / `select_multiple`,
+#'   `interval_type` / `qrule` -> quantile rows); others are ignored.
 #'
 #' @return A [`svyflow_results`] tibble with columns:
 #'   `Disaggregation`, `Disaggregation_level`, `Question`, `Response`,
@@ -69,8 +76,10 @@ analyze_survey <- function(design,
                            multi_response_sep = "; ",
                            result_format = "proportion",
                            digits = 1,
-                           use_labels = TRUE) {
+                           use_labels = TRUE,
+                           ci = ci_opts()) {
   .validate_format_args(result_format, digits)
+  ci <- .as_ci_opts(ci)
   df <- .svy_data(design)
   validate_plan(analysis_plan, df)
 
@@ -96,7 +105,7 @@ analyze_survey <- function(design,
   result_no_rf <- NULL
   if (!is.null(ap_no_rf) && nrow(ap_no_rf) > 0) {
     result_no_rf <- run_plan_internal(design, ap_no_rf, ms_options,
-                                      result_format, digits, use_labels)
+                                      result_format, digits, use_labels, ci)
     if (!is.null(result_no_rf)) result_no_rf$repeat_for <- NA_character_
   }
 
@@ -112,7 +121,7 @@ analyze_survey <- function(design,
           srvyr::filter(design, .data[[rf_col]] == lvl)
         }
         res <- run_plan_internal(d_sub, grp, ms_options,
-                                 result_format, digits, use_labels)
+                                 result_format, digits, use_labels, ci)
         if (!is.null(res)) res$repeat_for <- as.character(lvl)
         res
       })
@@ -136,7 +145,7 @@ analyze_survey <- function(design,
 # entry point analyze_survey() handles repeat_for above this layer.
 run_plan_internal <- function(design, plan, ms_options,
                               result_format = "proportion", digits = 1,
-                              use_labels = TRUE) {
+                              use_labels = TRUE, ci = ci_opts()) {
   n <- nrow(plan)
   if (n == 0) return(NULL)
 
@@ -155,7 +164,7 @@ run_plan_internal <- function(design, plan, ms_options,
     if (is.na(disag) || disag == "all") {
       lab <- if (is.na(disag)) NA_character_ else "all"
       rows_i <- fn(design, ques, lab, lab, ms_options,
-                   result_format, digits)
+                   result_format, digits, ci)
     } else {
       lvls <- unique(.svy_data(design)[[disag]])
       rows_i <- purrr::map_dfr(lvls, function(lvl) {
@@ -164,7 +173,7 @@ run_plan_internal <- function(design, plan, ms_options,
         } else {
           srvyr::filter(design, .data[[disag]] == lvl)
         }
-        fn(d_sub, ques, disag, lvl, ms_options, result_format, digits)
+        fn(d_sub, ques, disag, lvl, ms_options, result_format, digits, ci)
       })
     }
 

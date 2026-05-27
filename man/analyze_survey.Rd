@@ -10,7 +10,8 @@ analyze_survey(
   multi_response_sep = "; ",
   result_format = "proportion",
   digits = 1,
-  use_labels = TRUE
+  use_labels = TRUE,
+  ci = ci_opts()
 )
 }
 \arguments{
@@ -56,6 +57,14 @@ into the output's \code{Question} column and \code{disaggregation_label} into
 \code{Disaggregation} whenever those columns exist on the plan and the
 per-row value is not \code{NA}. If \code{FALSE}, the raw column names are used.
 Plans without the label columns are unaffected (backward compatible).}
+
+\item{ci}{A \code{\link[=ci_opts]{ci_opts()}} bundle controlling the confidence-interval
+method (confidence level, degrees of freedom, proportion CI method,
+quantile interval). Defaults to \code{ci_opts()}, which reproduces the
+historical behaviour (95\% t-interval on the design df, plain Wald
+proportions). The method-specific knobs only affect the rows they
+apply to (\code{prop_method} -> \code{select_one} / \code{select_multiple},
+\code{interval_type} / \code{qrule} -> quantile rows); others are ignored.}
 }
 \value{
 A \code{\link{svyflow_results}} tibble with columns:

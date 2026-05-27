@@ -3,6 +3,7 @@
 S3method(print,svyflow_results)
 S3method(print,svyflow_summary)
 export(analyze_survey)
+export(ci_opts)
 export(detect_ms_options)
 export(expand_multiselect)
 export(format_results)

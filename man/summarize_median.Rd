@@ -11,7 +11,8 @@ summarize_median(
   variable_label = NULL,
   disaggregation_label = NULL,
   digits = NULL,
-  result_only = FALSE
+  result_only = FALSE,
+  ci = ci_opts()
 )
 }
 \arguments{
@@ -37,6 +38,12 @@ rescaled, so rounding only takes effect in the \code{percent_fmt} form
 \item{result_only}{If \code{TRUE}, return only \code{Indicator}, the disaggregation
 column (if any), and the \code{Mean} column. \code{SE} / \verb{CI_*} / \code{Count} are
 dropped.}
+
+\item{ci}{A \code{\link[=ci_opts]{ci_opts()}} bundle controlling the confidence-interval
+method. For numeric statistics the relevant knobs are the universal
+\code{ci_level} / \code{df} (e.g. \code{ci_opts(ci_level = 0.90, df = Inf)} for a
+90\% normal-approximation interval); for quantiles also
+\code{interval_type} / \code{qrule}. Defaults to \code{ci_opts()}.}
 }
 \value{
 A \code{svyflow_summary} tibble with \code{Indicator}, optionally the

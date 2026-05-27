@@ -187,7 +187,7 @@ new_svyflow_summary <- function(x) {
                                    disaggregation, variable_label,
                                    disaggregation_label,
                                    result_format, digits,
-                                   crosstab, with_ci) {
+                                   crosstab, with_ci, ci) {
   plan <- .one_row_plan(variable, kobo_type,
                         disaggregation = disaggregation,
                         variable_label = variable_label,
@@ -195,7 +195,8 @@ new_svyflow_summary <- function(x) {
   long <- analyze_survey(design, plan,
                          result_format = result_format,
                          digits        = digits,
-                         use_labels    = TRUE)
+                         use_labels    = TRUE,
+                         ci            = ci)
 
   renamed <- .rename_categorical(long, variable, variable_label,
                                  disaggregation, disaggregation_label,
@@ -217,7 +218,7 @@ new_svyflow_summary <- function(x) {
 .summarize_numeric <- function(design, variable, method, q,
                                disaggregation, variable_label,
                                disaggregation_label,
-                               digits, result_only) {
+                               digits, result_only, ci) {
   plan <- .one_row_plan(variable, "integer", method = method,
                         disaggregation = disaggregation,
                         variable_label = variable_label,
@@ -225,7 +226,8 @@ new_svyflow_summary <- function(x) {
   long <- analyze_survey(design, plan,
                          result_format = "proportion",
                          digits        = digits,
-                         use_labels    = TRUE)
+                         use_labels    = TRUE,
+                         ci            = ci)
   method_label <- .method_label(if (is.null(q)) method else "quantile", q = q)
   renamed <- .rename_numeric(long, variable, variable_label,
                              disaggregation, disaggregation_label,
@@ -268,6 +270,11 @@ new_svyflow_summary <- function(x) {
 #'   dropped from the wide view.
 #' @param with_ci If `TRUE` (only meaningful when `crosstab = TRUE`),
 #'   format wide-table cells as `"estimate (CI_low-CI_high)"`.
+#' @param ci A [ci_opts()] bundle controlling the confidence-interval
+#'   method. For proportions the relevant knob is `prop_method` (e.g.
+#'   `ci_opts(prop_method = "logit")` for bounded intervals on rare
+#'   outcomes), plus the universal `ci_level` / `df`. Defaults to
+#'   `ci_opts()` (95% t-interval, plain Wald proportions).
 #'
 #' @return A tibble of class `svyflow_summary`. Schema depends on
 #'   `disaggregation` and `crosstab`:
@@ -306,11 +313,12 @@ summarize_select_one <- function(design, variable,
                                  result_format = "proportion",
                                  digits = 1,
                                  crosstab = FALSE,
-                                 with_ci  = FALSE) {
+                                 with_ci  = FALSE,
+                                 ci = ci_opts()) {
   .summarize_categorical(design, variable, "select_one",
                          disaggregation, variable_label,
                          disaggregation_label,
-                         result_format, digits, crosstab, with_ci)
+                         result_format, digits, crosstab, with_ci, ci)
 }
 
 #' Summarise a multi-select (select_multiple) categorical indicator
@@ -347,11 +355,12 @@ summarize_select_multiple <- function(design, variable,
                                       result_format = "proportion",
                                       digits = 1,
                                       crosstab = FALSE,
-                                      with_ci  = FALSE) {
+                                      with_ci  = FALSE,
+                                      ci = ci_opts()) {
   .summarize_categorical(design, variable, "select_multiple",
                          disaggregation, variable_label,
                          disaggregation_label,
-                         result_format, digits, crosstab, with_ci)
+                         result_format, digits, crosstab, with_ci, ci)
 }
 
 
@@ -383,6 +392,11 @@ summarize_select_multiple <- function(design, variable,
 #' @param result_only If `TRUE`, return only `Indicator`, the disaggregation
 #'   column (if any), and the `Mean` column. `SE` / `CI_*` / `Count` are
 #'   dropped.
+#' @param ci A [ci_opts()] bundle controlling the confidence-interval
+#'   method. For numeric statistics the relevant knobs are the universal
+#'   `ci_level` / `df` (e.g. `ci_opts(ci_level = 0.90, df = Inf)` for a
+#'   90% normal-approximation interval); for quantiles also
+#'   `interval_type` / `qrule`. Defaults to `ci_opts()`.
 #'
 #' @return A tibble of class `svyflow_summary` with columns
 #'   `Indicator`, optionally the disaggregation column, then `Mean`,
@@ -410,10 +424,11 @@ summarize_mean <- function(design, variable,
                            variable_label = NULL,
                            disaggregation_label = NULL,
                            digits = NULL,
-                           result_only = FALSE) {
+                           result_only = FALSE,
+                           ci = ci_opts()) {
   .summarize_numeric(design, variable, "mean", q = NULL,
                      disaggregation, variable_label,
-                     disaggregation_label, digits, result_only)
+                     disaggregation_label, digits, result_only, ci)
 }
 
 #' Survey-design-aware total (sum) of a numeric indicator
@@ -439,10 +454,11 @@ summarize_sum <- function(design, variable,
                           variable_label = NULL,
                           disaggregation_label = NULL,
                           digits = NULL,
-                          result_only = FALSE) {
+                          result_only = FALSE,
+                          ci = ci_opts()) {
   .summarize_numeric(design, variable, "sum", q = NULL,
                      disaggregation, variable_label,
-                     disaggregation_label, digits, result_only)
+                     disaggregation_label, digits, result_only, ci)
 }
 
 #' Survey-design-aware median of a numeric indicator
@@ -469,10 +485,11 @@ summarize_median <- function(design, variable,
                              variable_label = NULL,
                              disaggregation_label = NULL,
                              digits = NULL,
-                             result_only = FALSE) {
+                             result_only = FALSE,
+                             ci = ci_opts()) {
   .summarize_numeric(design, variable, "median", q = NULL,
                      disaggregation, variable_label,
-                     disaggregation_label, digits, result_only)
+                     disaggregation_label, digits, result_only, ci)
 }
 
 #' Survey-design-aware quantile of a numeric indicator
@@ -506,7 +523,8 @@ summarize_quantile <- function(design, variable, q,
                                variable_label = NULL,
                                disaggregation_label = NULL,
                                digits = NULL,
-                               result_only = FALSE) {
+                               result_only = FALSE,
+                               ci = ci_opts()) {
   if (!is.numeric(q) || length(q) != 1 || is.na(q) || q < 0 || q > 1) {
     stop("`q` must be a single numeric in [0, 1].")
   }
@@ -527,11 +545,11 @@ summarize_quantile <- function(design, variable, q,
     return(.summarize_quantile_arbitrary(design, variable, q,
                                          disaggregation, variable_label,
                                          disaggregation_label,
-                                         digits, result_only))
+                                         digits, result_only, ci))
   }
   res <- .summarize_numeric(design, variable, method, q = q,
                             disaggregation, variable_label,
-                            disaggregation_label, digits, result_only)
+                            disaggregation_label, digits, result_only, ci)
   res
 }
 
@@ -541,14 +559,15 @@ summarize_quantile <- function(design, variable, q,
 .summarize_quantile_arbitrary <- function(design, variable, q,
                                           disaggregation, variable_label,
                                           disaggregation_label,
-                                          digits, result_only) {
+                                          digits, result_only, ci) {
   method_label <- .method_label("quantile", q = q)
   has_disag <- !is.null(disaggregation) && !identical(disaggregation, "all")
 
   build_row <- function(d_sub, disag, lvl) {
     stat_quantile_svy(d_sub, variable, disag, lvl, q, method_label,
                       ms_options = NULL,
-                      result_format = "proportion", digits = digits)
+                      result_format = "proportion", digits = digits,
+                      ci = ci)
   }
 
   rows <- if (has_disag) {
@@ -614,10 +633,11 @@ summarize_min <- function(design, variable,
                           variable_label = NULL,
                           disaggregation_label = NULL,
                           digits = NULL,
-                          result_only = FALSE) {
+                          result_only = FALSE,
+                          ci = ci_opts()) {
   .summarize_numeric(design, variable, "min", q = NULL,
                      disaggregation, variable_label,
-                     disaggregation_label, digits, result_only)
+                     disaggregation_label, digits, result_only, ci)
 }
 
 #' Unweighted maximum of a numeric indicator
@@ -644,10 +664,11 @@ summarize_max <- function(design, variable,
                           variable_label = NULL,
                           disaggregation_label = NULL,
                           digits = NULL,
-                          result_only = FALSE) {
+                          result_only = FALSE,
+                          ci = ci_opts()) {
   .summarize_numeric(design, variable, "max", q = NULL,
                      disaggregation, variable_label,
-                     disaggregation_label, digits, result_only)
+                     disaggregation_label, digits, result_only, ci)
 }
 
 

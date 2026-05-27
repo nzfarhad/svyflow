@@ -31,6 +31,12 @@
 #' @param digits Non-negative numeric scalar, or `NULL` for no rounding.
 #'   Applied to `Freq` / `SE` / `CI_*` in the two percent modes; ignored
 #'   in `"proportion"` mode to keep raw precision. Default `1`.
+#' @param ci A [ci_opts()] bundle controlling the confidence-interval
+#'   method (level, df, proportion method, quantile interval). Defaults
+#'   to `ci_opts()`, which reproduces the historical behaviour. Only the
+#'   knobs relevant to a given aggregator are read (`prop_method` by the
+#'   proportion aggregators, `interval_type` / `qrule` by the quantile
+#'   one); the rest accept it for signature uniformity.
 #'
 #' @return A tibble with columns `Var1, Freq, SE, CI_low, CI_high,
 #'   aggregation_method, variable, count, valid, disaggregation,
@@ -43,8 +49,10 @@ NULL
 #' @rdname aggregators
 #' @keywords internal
 single_select_svy <- function(design, ques, disag, level, ms_options = NULL,
-                              result_format = "proportion", digits = 1) {
+                              result_format = "proportion", digits = 1,
+                              ci = ci_opts()) {
   .validate_format_args(result_format, digits)
+  ci <- .as_ci_opts(ci)
   vals <- .svy_data(design)[[ques]]
   valid_n <- sum(!is.na(vals))
   if (valid_n == 0) return(.empty_row(ques, "perc", disag, level, result_format))
@@ -52,7 +60,13 @@ single_select_svy <- function(design, ques, disag, level, ms_options = NULL,
   d <- srvyr::filter(design, !is.na(.data[[ques]]))
   res <- dplyr::summarise(
     srvyr::group_by(d, !!rlang::sym(ques)),
-    prop = srvyr::survey_mean(vartype = c("se", "ci")),
+    prop = if (is.null(ci$prop_method))
+             srvyr::survey_mean(vartype = c("se", "ci"),
+                                level = ci$ci_level, df = ci$df)
+           else
+             srvyr::survey_mean(vartype = c("se", "ci"),
+                                level = ci$ci_level, df = ci$df,
+                                proportion = TRUE, prop_method = ci$prop_method),
     cnt  = srvyr::unweighted(dplyr::n())
   )
 
@@ -74,8 +88,10 @@ single_select_svy <- function(design, ques, disag, level, ms_options = NULL,
 #' @rdname aggregators
 #' @keywords internal
 multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
-                             result_format = "proportion", digits = 1) {
+                             result_format = "proportion", digits = 1,
+                             ci = ci_opts()) {
   .validate_format_args(result_format, digits)
+  ci <- .as_ci_opts(ci)
   if (is.null(ms_options) || is.null(ms_options[[ques]])) {
     ms_options <- list()
     ms_options[[ques]] <- detect_ms_options(.svy_data(design), ques)[[ques]]
@@ -103,8 +119,16 @@ multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
     d <- srvyr::filter(design, !is.na(.data[[opt]]))
     r <- dplyr::summarise(
       d,
-      prop = srvyr::survey_mean(as.numeric(.data[[opt]]),
-                                vartype = c("se", "ci"), na.rm = TRUE),
+      prop = if (is.null(ci$prop_method))
+               srvyr::survey_mean(as.numeric(.data[[opt]]),
+                                  vartype = c("se", "ci"), na.rm = TRUE,
+                                  level = ci$ci_level, df = ci$df)
+             else
+               srvyr::survey_mean(as.numeric(.data[[opt]]),
+                                  vartype = c("se", "ci"), na.rm = TRUE,
+                                  level = ci$ci_level, df = ci$df,
+                                  proportion = TRUE,
+                                  prop_method = ci$prop_method),
       cnt  = srvyr::unweighted(sum(.data[[opt]] == 1, na.rm = TRUE))
     )
     tibble::tibble(
@@ -153,12 +177,15 @@ multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
 #' @rdname aggregators
 #' @keywords internal
 stat_mean_svy <- function(design, ques, disag, level, ms_options = NULL,
-                          result_format = "proportion", digits = 1) {
+                          result_format = "proportion", digits = 1,
+                          ci = ci_opts()) {
   .validate_format_args(result_format, digits)
+  ci <- .as_ci_opts(ci)
   .summary_stat(design, ques, disag, level, "mean", function(d, q) {
     dplyr::summarise(d,
       val = srvyr::survey_mean(as.numeric(.data[[q]]),
-                               vartype = c("se", "ci"), na.rm = TRUE)
+                               vartype = c("se", "ci"), na.rm = TRUE,
+                               level = ci$ci_level, df = ci$df)
     )
   }, result_format, digits)
 }
@@ -166,12 +193,15 @@ stat_mean_svy <- function(design, ques, disag, level, ms_options = NULL,
 #' @rdname aggregators
 #' @keywords internal
 stat_sum_svy <- function(design, ques, disag, level, ms_options = NULL,
-                         result_format = "proportion", digits = 1) {
+                         result_format = "proportion", digits = 1,
+                         ci = ci_opts()) {
   .validate_format_args(result_format, digits)
+  ci <- .as_ci_opts(ci)
   .summary_stat(design, ques, disag, level, "sum", function(d, q) {
     dplyr::summarise(d,
       val = srvyr::survey_total(as.numeric(.data[[q]]),
-                                vartype = c("se", "ci"), na.rm = TRUE)
+                                vartype = c("se", "ci"), na.rm = TRUE,
+                                level = ci$ci_level, df = ci$df)
     )
   }, result_format, digits)
 }
@@ -183,8 +213,10 @@ stat_sum_svy <- function(design, ques, disag, level, ms_options = NULL,
 #' @keywords internal
 stat_quantile_svy <- function(design, ques, disag, level, q, method,
                               ms_options = NULL,
-                              result_format = "proportion", digits = 1) {
+                              result_format = "proportion", digits = 1,
+                              ci = ci_opts()) {
   .validate_format_args(result_format, digits)
+  ci <- .as_ci_opts(ci)
   vals <- .svy_data(design)[[ques]]
   valid_n <- sum(!is.na(suppressWarnings(as.numeric(vals))))
   if (valid_n == 0) return(.empty_row(ques, method, disag, level, result_format))
@@ -193,9 +225,13 @@ stat_quantile_svy <- function(design, ques, disag, level, q, method,
   res <- dplyr::summarise(
     d,
     val = srvyr::survey_quantile(as.numeric(.data[[ques]]),
-                                 quantiles = q,
-                                 vartype   = c("se", "ci"),
-                                 na.rm     = TRUE)
+                                 quantiles     = q,
+                                 vartype       = c("se", "ci"),
+                                 na.rm         = TRUE,
+                                 level         = ci$ci_level,
+                                 df            = ci$df,
+                                 interval_type = ci$interval_type,
+                                 qrule         = ci$qrule)
   )
   qstem <- grep("^val_q\\d+$", names(res), value = TRUE)[1]
 
@@ -220,7 +256,8 @@ stat_quantile_svy <- function(design, ques, disag, level, q, method,
 #' @rdname aggregators
 #' @keywords internal
 stat_min_unweighted <- function(design, ques, disag, level, ms_options = NULL,
-                                result_format = "proportion", digits = 1) {
+                                result_format = "proportion", digits = 1,
+                                ci = ci_opts()) {
   .validate_format_args(result_format, digits)
   vals <- suppressWarnings(as.numeric(.svy_data(design)[[ques]]))
   valid_n <- sum(!is.na(vals))
@@ -243,7 +280,8 @@ stat_min_unweighted <- function(design, ques, disag, level, ms_options = NULL,
 #' @rdname aggregators
 #' @keywords internal
 stat_max_unweighted <- function(design, ques, disag, level, ms_options = NULL,
-                                result_format = "proportion", digits = 1) {
+                                result_format = "proportion", digits = 1,
+                                ci = ci_opts()) {
   .validate_format_args(result_format, digits)
   vals <- suppressWarnings(as.numeric(.svy_data(design)[[ques]]))
   valid_n <- sum(!is.na(vals))
