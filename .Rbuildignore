@@ -8,3 +8,7 @@
 ^\.github$
 ^\.claude$
 ^dev$
+^ROADMAP\.md$
+^LICENSE\.md$
+^doc$
+^Meta$

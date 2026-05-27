@@ -1,0 +1,211 @@
+---
+title: "Getting started with svyflow"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with svyflow}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>"
+)
+```
+
+`svyflow` turns survey data into **design-correct descriptive statistics** —
+proportions, means, totals, quantiles, min/max — with standard errors and
+confidence intervals, driven either by an analysis plan (batch) or by
+single-indicator wrappers (ad hoc). This vignette walks through a complete
+workflow on a small synthetic household survey.
+
+```{r}
+library(svyflow)
+```
+
+## A synthetic dataset
+
+We build a 500-household survey with a sampling weight, a stratification
+variable (`province`), a couple of categorical questions, a multi-select
+question stored as a delimited string, and two numeric variables.
+
+```{r}
+set.seed(123)
+n <- 500
+
+survey_df <- data.frame(
+  province = sample(c("Kabul", "Balkh", "Herat"), n, replace = TRUE),
+  gender   = sample(c("male", "female"), n, replace = TRUE, prob = c(0.49, 0.51)),
+  edu_lvl  = sample(c("none", "primary", "secondary", "tertiary"), n, replace = TRUE),
+  hh_size  = pmin(stats::rpois(n, lambda = 5) + 1L, 18L),
+  income   = round(stats::rgamma(n, shape = 2, scale = 200)),
+  weight   = stats::runif(n, 0.5, 2.0),
+  stringsAsFactors = FALSE
+)
+
+# A multi-select "household needs" question, stored as "; "-delimited text.
+needs <- c("cash", "food", "shelter", "health")
+survey_df$hh_needs <- vapply(seq_len(n), function(i) {
+  k <- sample(1:3, 1)
+  paste(sort(sample(needs, k)), collapse = "; ")
+}, character(1))
+
+head(survey_df)
+```
+
+## Step 1 — handle the multi-select
+
+Kobo / SurveyCTO usually export multi-select questions as one binary column
+per option (`hh_needs/cash`, `hh_needs/food`, …). `svyflow` detects those
+automatically. Here we only have the delimited string, so we expand it first:
+
+```{r}
+survey_df <- expand_multiselect(survey_df, vars = "hh_needs", sep = "; ")
+attr(survey_df, "ms_options")$hh_needs
+```
+
+## Step 2 — build the survey design
+
+`make_design()` wraps `survey::svydesign()` / `srvyr::as_survey()`. Pass the
+column names as strings. `weights = NULL` gives simple random sampling, so the
+same code path works for unweighted data.
+
+```{r}
+des <- make_design(survey_df, weights = "weight", strata = "province")
+des
+```
+
+## Step 3 — batch analysis with a plan
+
+An analysis plan is a data frame with one row per *(indicator x
+disaggregation)*. The optional `variable_label` / `disaggregation_label`
+columns produce friendly output names.
+
+```{r}
+plan <- tibble::tribble(
+  ~variable,  ~kobo_type,        ~aggregation_method, ~disaggregation, ~variable_label,   ~disaggregation_label,
+  "gender",   "select_one",      NA,                  "all",           "Gender",          NA,
+  "edu_lvl",  "select_one",      NA,                  "gender",        "Education level", "Sex",
+  "hh_needs", "select_multiple", NA,                  "all",           "Household needs", NA,
+  "hh_size",  "integer",         "mean",              "gender",        "Household size",  "Sex",
+  "income",   "integer",         "median",            "all",           "Monthly income",  NA
+)
+
+results <- analyze_survey(des, plan)
+results
+```
+
+The result is a long tibble (class `svyflow_results`) with a stable schema:
+`Disaggregation`, `Disaggregation_level`, `Question`, `Response`,
+`Aggregation_method`, `Result`, `SE`, `CI_low`, `CI_high`, `Count`,
+`Denominator`, `repeat_for`.
+
+You can validate a plan on its own before running it:
+
+```{r}
+validate_plan(plan, survey_df)  # invisibly returns TRUE when valid
+```
+
+## Step 4 — choose how results are reported
+
+Categorical estimates default to **proportions** (0–1). Switch the scale with
+`result_format` and round with `digits`:
+
+```{r}
+res_pct <- analyze_survey(des, plan, result_format = "percent", digits = 1)
+head(res_pct[res_pct$Aggregation_method == "perc", c("Question", "Response", "Result")])
+```
+
+Re-running the whole analysis just to change presentation is wasteful for big
+plans. `format_results()` reformats an existing result cheaply, and is
+aggregation-method aware (means/medians are never treated as percentages):
+
+```{r}
+format_results(results, to = "percent_fmt", digits = 1)
+```
+
+## Step 5 — single-indicator wrappers
+
+For ad hoc work, the `summarize_*()` functions give a publication-ready table
+for one indicator without writing a plan.
+
+```{r}
+summarize_select_one(des, "edu_lvl", variable_label = "Education level")
+```
+
+Disaggregated, pivoted to a **crosstab**:
+
+```{r}
+summarize_select_one(des, "edu_lvl",
+                     disaggregation = "gender",
+                     variable_label = "Education level",
+                     disaggregation_label = "Sex",
+                     crosstab = TRUE)
+```
+
+The same crosstab with confidence intervals inside each cell:
+
+```{r}
+summarize_select_one(des, "edu_lvl",
+                     disaggregation = "gender",
+                     variable_label = "Education level",
+                     crosstab = TRUE, with_ci = TRUE, digits = 2)
+```
+
+Numeric statistics name the value column after the statistic:
+
+```{r}
+summarize_mean(des, "hh_size", variable_label = "Household size")
+summarize_median(des, "income", variable_label = "Monthly income")
+summarize_quantile(des, "income", q = 0.90, variable_label = "Monthly income")
+```
+
+Use `result_only = TRUE` for a compact one-line summary:
+
+```{r}
+summarize_mean(des, "hh_size", variable_label = "Household size",
+               result_only = TRUE)
+```
+
+And multi-select:
+
+```{r}
+summarize_select_multiple(des, "hh_needs",
+                          variable_label = "Household needs",
+                          result_format = "percent", digits = 1)
+```
+
+## Step 6 — confidence-interval methods
+
+By default `svyflow` reports a 95% t-interval on the design degrees of freedom
+with plain Wald proportions. The `ci_opts()` bundle changes this and threads
+through every function via the `ci` argument.
+
+A 90% normal-approximation interval:
+
+```{r}
+summarize_mean(des, "hh_size", variable_label = "Household size",
+               ci = ci_opts(ci_level = 0.90, df = Inf))
+```
+
+Logit intervals for proportions — preferable for **rare outcomes** near 0% or
+100%, where the plain Wald interval can fall outside `[0, 1]`:
+
+```{r}
+summarize_select_one(des, "gender",
+                     result_format = "percent",
+                     ci = ci_opts(prop_method = "logit"))
+```
+
+In batch mode the method-specific knobs only affect the rows they apply to:
+`prop_method` changes `select_one` / `select_multiple` rows, `interval_type` /
+`qrule` change quantiles, and numeric rows are untouched.
+
+## Where to go next
+
+- `?analyze_survey` — the batch entry point and its full plan schema.
+- `?summarize_select_one`, `?summarize_mean`, … — the single-indicator family.
+- `?ci_opts` — confidence-interval options.
+- `?format_results` — post-run reformatting.
+- `?make_design`, `?expand_multiselect` — design construction and multi-select.
