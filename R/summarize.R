@@ -1,49 +1,3 @@
-#' Single-indicator summary wrappers
-#'
-#' Ergonomic wrappers around the survey-design-aware aggregators for use on
-#' one indicator at a time. They build a one-row analysis plan, delegate to
-#' [analyze_survey()], and post-process the long output into a publication-
-#' ready tibble (column names tailored to the indicator, optional crosstab
-#' pivot when disaggregated).
-#'
-#' All wrappers accept a [srvyr::tbl_svy] design. The categorical wrappers
-#' return proportion / percentage estimates with `SE` / `CI_low` / `CI_high`
-#' / `Count` / `Denominator`. The numeric wrappers return the chosen
-#' statistic with the same auxiliary columns (except `Denominator`, which
-#' equals `Count` for raw quantities and is dropped).
-#'
-#' @param design A [srvyr::tbl_svy] survey design (typically from
-#'   [make_design()]).
-#' @param variable Character. The column to summarise.
-#' @param disaggregation Character or `NULL`. A grouping column name; pass
-#'   `NULL` (or `"all"`) for no disaggregation.
-#' @param variable_label Display label for `variable`. Used as the column
-#'   header for response/option values (categorical) or as the value of the
-#'   `Indicator` column (numeric). Falls back to `variable` when `NULL`.
-#' @param disaggregation_label Display label for `disaggregation`. Used as
-#'   the column header for the disaggregation column in long output. Falls
-#'   back to `disaggregation` when `NULL`.
-#' @param result_format,digits Passed through to [analyze_survey()]. See
-#'   that function's documentation. Categorical wrappers use them; numeric
-#'   wrappers accept `digits` only.
-#' @param crosstab If `TRUE` (and `disaggregation` is set), pivot the long
-#'   output to a wide table: rows = response / option values, columns =
-#'   disaggregation levels. SE / CI / Count are dropped from the wide view.
-#'   Categorical wrappers only.
-#' @param with_ci If `TRUE` (only meaningful when `crosstab = TRUE`),
-#'   format cells as `"estimate (CI_low–CI_high)"`. Categorical wrappers
-#'   only.
-#' @param result_only If `TRUE`, drop `SE` / `CI_low` / `CI_high` / `Count`
-#'   from the output. Numeric wrappers only.
-#' @param q For [summarize_quantile()] only: a single quantile in `[0, 1]`.
-#'
-#' @return A tibble of class `svyflow_summary`.
-#'
-#' @name summarize
-#' @seealso [analyze_survey()], [format_results()]
-NULL
-
-
 # ----------------------------------------------------------------------------
 # Internal helpers
 # ----------------------------------------------------------------------------
@@ -122,7 +76,7 @@ NULL
   out
 }
 
-# Format a single "estimate (low–high)" cell. Handles both numeric input
+# Format a single "estimate (low-high)" cell. Handles both numeric input
 # (proportion/percent) and character input (percent_fmt, which already
 # carries "%"). digits controls decimal places for numeric input.
 .format_ci_cell <- function(result, ci_low, ci_high, digits) {
@@ -138,7 +92,7 @@ NULL
   hi <- to_chr(ci_high)
   ifelse(is.na(result) | is.na(ci_low) | is.na(ci_high),
          NA_character_,
-         paste0(r, " (", lo, "–", hi, ")"))
+         paste0(r, " (", lo, "\u2013", hi, ")"))
 }
 
 # Pivot a long-form categorical table to wide. `long` has columns
@@ -284,7 +238,66 @@ new_svyflow_summary <- function(x) {
 # Public categorical wrappers
 # ----------------------------------------------------------------------------
 
-#' @rdname summarize
+#' Summarise a single-choice (select_one) categorical indicator
+#'
+#' Builds a one-row analysis plan and delegates to [analyze_survey()], then
+#' reshapes the long output into a publication-ready table: one row per
+#' response value, with `variable_label` as the row-header column name and
+#' `Result` renamed to `Proportion` or `Percentage` depending on
+#' `result_format`. Optionally pivots a disaggregated result into a
+#' crosstab.
+#'
+#' @param design A [srvyr::tbl_svy] survey design (typically from
+#'   [make_design()]).
+#' @param variable Character. The column to summarise.
+#' @param disaggregation Character or `NULL`. A grouping column name; pass
+#'   `NULL` (or `"all"`) for no disaggregation.
+#' @param variable_label Display label for `variable`. Used as the column
+#'   header for response values. Falls back to `variable` when `NULL`.
+#' @param disaggregation_label Display label for `disaggregation`. Used as
+#'   the column header for the disaggregation column in long output. Falls
+#'   back to `disaggregation` when `NULL`.
+#' @param result_format,digits Passed through to [analyze_survey()].
+#'   `result_format` is `"proportion"` (default; 0-1 numeric, value column
+#'   named `Proportion`), `"percent"` (0-100 numeric, `Percentage`) or
+#'   `"percent_fmt"` (character `"53.3%"`, `Percentage`). `digits` is the
+#'   rounding applied to the percent modes; default `1`.
+#' @param crosstab If `TRUE` (and `disaggregation` is set), pivot the long
+#'   output to a wide table: rows = response values, columns =
+#'   disaggregation levels. `SE` / `CI_*` / `Count` / `Denominator` are
+#'   dropped from the wide view.
+#' @param with_ci If `TRUE` (only meaningful when `crosstab = TRUE`),
+#'   format wide-table cells as `"estimate (CI_low-CI_high)"`.
+#'
+#' @return A tibble of class `svyflow_summary`. Schema depends on
+#'   `disaggregation` and `crosstab`:
+#'
+#'   - No disaggregation:
+#'     `<variable_label>` | `Proportion`/`Percentage` | `SE` | `CI_low` |
+#'     `CI_high` | `Count` | `Denominator`
+#'   - Disaggregation, long (`crosstab = FALSE`):
+#'     `<variable_label>` | `<disaggregation_label>` | `Proportion` | ...
+#'   - Disaggregation, `crosstab = TRUE`:
+#'     `<variable_label>` | <one column per disaggregation level>
+#'
+#' @examples
+#' df  <- data.frame(
+#'   edu_lvl = sample(c("none","primary","secondary"), 200, TRUE),
+#'   gender  = sample(c("m","f"), 200, TRUE),
+#'   weight  = runif(200, 0.5, 2.0)
+#' )
+#' des <- make_design(df, weights = "weight")
+#'
+#' summarize_select_one(des, "edu_lvl", variable_label = "Education")
+#' summarize_select_one(des, "edu_lvl",
+#'                      disaggregation = "gender",
+#'                      variable_label = "Education",
+#'                      disaggregation_label = "Sex",
+#'                      crosstab = TRUE, with_ci = TRUE)
+#'
+#' @seealso [summarize_select_multiple()], [analyze_survey()],
+#'   [format_results()]
+#' @family summarize
 #' @export
 summarize_select_one <- function(design, variable,
                                  disaggregation = NULL,
@@ -300,7 +313,32 @@ summarize_select_one <- function(design, variable,
                          result_format, digits, crosstab, with_ci)
 }
 
-#' @rdname summarize
+#' Summarise a multi-select (select_multiple) categorical indicator
+#'
+#' Same contract as [summarize_select_one()] but for multi-response
+#' variables (one binary column per option, Kobo / SurveyCTO style).
+#' Returns one row per option. Detection of option columns happens
+#' through [detect_ms_options()] (siblings of the form `var/opt` or
+#' `var___opt`); if none are present, call [expand_multiselect()] on the
+#' data frame first.
+#'
+#' @inheritParams summarize_select_one
+#'
+#' @return A `svyflow_summary` tibble. See [summarize_select_one()] for
+#'   the schema (one row per option instead of per response).
+#'
+#' @examples
+#' df <- data.frame(
+#'   hh_needs = c("cash; food", "shelter", "cash; shelter"),
+#'   gender   = c("m","f","f")
+#' )
+#' df <- expand_multiselect(df, vars = "hh_needs", sep = "; ")
+#' summarize_select_multiple(make_design(df), "hh_needs",
+#'                           variable_label = "Household needs")
+#'
+#' @seealso [summarize_select_one()], [expand_multiselect()],
+#'   [detect_ms_options()]
+#' @family summarize
 #' @export
 summarize_select_multiple <- function(design, variable,
                                       disaggregation = NULL,
@@ -321,7 +359,51 @@ summarize_select_multiple <- function(design, variable,
 # Public numeric wrappers
 # ----------------------------------------------------------------------------
 
-#' @rdname summarize
+#' Survey-design-aware mean of a numeric indicator
+#'
+#' Computes the (design-correct) mean of `variable`, optionally
+#' disaggregated. Returns a publication-ready tibble with the mean in a
+#' column literally named `Mean`, plus `SE`, `CI_low`, `CI_high`, `Count`.
+#' Use `result_only = TRUE` to drop the auxiliary columns for compact
+#' output.
+#'
+#' @param design A [srvyr::tbl_svy] survey design.
+#' @param variable Character. The numeric column to summarise.
+#' @param disaggregation Character or `NULL`. A grouping column name;
+#'   `NULL` (or `"all"`) means no disaggregation.
+#' @param variable_label Display label for `variable`. Becomes the value
+#'   of the `Indicator` column. Falls back to `variable` when `NULL`.
+#' @param disaggregation_label Display label for `disaggregation`. Used as
+#'   the column header for the disaggregation column. Falls back to
+#'   `disaggregation` when `NULL`.
+#' @param digits Non-negative numeric scalar, or `NULL` for no rounding.
+#'   Passed through to [analyze_survey()]; numeric statistics are not
+#'   rescaled, so rounding only takes effect in the `percent_fmt` form
+#'   (not generally useful here). Default `NULL`.
+#' @param result_only If `TRUE`, return only `Indicator`, the disaggregation
+#'   column (if any), and the `Mean` column. `SE` / `CI_*` / `Count` are
+#'   dropped.
+#'
+#' @return A tibble of class `svyflow_summary` with columns
+#'   `Indicator`, optionally the disaggregation column, then `Mean`,
+#'   `SE`, `CI_low`, `CI_high`, `Count` (unless `result_only = TRUE`).
+#'
+#' @examples
+#' df  <- data.frame(
+#'   hh_size = stats::rpois(200, 5) + 1,
+#'   gender  = sample(c("m","f"), 200, TRUE),
+#'   weight  = runif(200, 0.5, 2.0)
+#' )
+#' des <- make_design(df, weights = "weight")
+#'
+#' summarize_mean(des, "hh_size", variable_label = "Household size")
+#' summarize_mean(des, "hh_size",
+#'                disaggregation = "gender",
+#'                variable_label = "Household size",
+#'                disaggregation_label = "Sex")
+#'
+#' @seealso [summarize_sum()], [summarize_median()], [summarize_quantile()]
+#' @family summarize
 #' @export
 summarize_mean <- function(design, variable,
                            disaggregation = NULL,
@@ -334,7 +416,23 @@ summarize_mean <- function(design, variable,
                      disaggregation_label, digits, result_only)
 }
 
-#' @rdname summarize
+#' Survey-design-aware total (sum) of a numeric indicator
+#'
+#' Like [summarize_mean()] but reports the design-correct total. Value
+#' column is named `Sum`.
+#'
+#' @inheritParams summarize_mean
+#'
+#' @return A `svyflow_summary` tibble with `Indicator`, optionally the
+#'   disaggregation column, then `Sum`, `SE`, `CI_low`, `CI_high`, `Count`.
+#'
+#' @examples
+#' df  <- data.frame(income = round(stats::rgamma(100, 2, scale = 200)),
+#'                   weight = runif(100, 0.5, 2))
+#' des <- make_design(df, weights = "weight")
+#' summarize_sum(des, "income", variable_label = "Total income")
+#'
+#' @family summarize
 #' @export
 summarize_sum <- function(design, variable,
                           disaggregation = NULL,
@@ -347,7 +445,24 @@ summarize_sum <- function(design, variable,
                      disaggregation_label, digits, result_only)
 }
 
-#' @rdname summarize
+#' Survey-design-aware median of a numeric indicator
+#'
+#' Shortcut for `summarize_quantile(..., q = 0.5)`. Value column is named
+#' `Median`.
+#'
+#' @inheritParams summarize_mean
+#'
+#' @return A `svyflow_summary` tibble with `Indicator`, optionally the
+#'   disaggregation column, then `Median`, `SE`, `CI_low`, `CI_high`,
+#'   `Count`.
+#'
+#' @examples
+#' df  <- data.frame(hh_size = stats::rpois(200, 5) + 1)
+#' des <- make_design(df)
+#' summarize_median(des, "hh_size", variable_label = "Household size")
+#'
+#' @seealso [summarize_quantile()]
+#' @family summarize
 #' @export
 summarize_median <- function(design, variable,
                              disaggregation = NULL,
@@ -360,7 +475,31 @@ summarize_median <- function(design, variable,
                      disaggregation_label, digits, result_only)
 }
 
-#' @rdname summarize
+#' Survey-design-aware quantile of a numeric indicator
+#'
+#' Computes the design-correct quantile at probability `q`. The value
+#' column is named after the quantile (e.g. `Q25` for `q = 0.25`, `Q90`
+#' for `q = 0.9`). For the three quartile shortcuts (0.25 / 0.5 / 0.75)
+#' the call is dispatched through [analyze_survey()]; for arbitrary `q`
+#' the underlying aggregator is called directly with the requested
+#' probability.
+#'
+#' @inheritParams summarize_mean
+#' @param q Numeric, single value in `[0, 1]`. The quantile probability.
+#'
+#' @return A `svyflow_summary` tibble with `Indicator`, optionally the
+#'   disaggregation column, then `Q<NN>`, `SE`, `CI_low`, `CI_high`,
+#'   `Count`.
+#'
+#' @examples
+#' df  <- data.frame(income = round(stats::rgamma(200, 2, scale = 200)),
+#'                   weight = runif(200, 0.5, 2))
+#' des <- make_design(df, weights = "weight")
+#' summarize_quantile(des, "income", q = 0.25, variable_label = "Income")
+#' summarize_quantile(des, "income", q = 0.90, variable_label = "Income")
+#'
+#' @seealso [summarize_median()]
+#' @family summarize
 #' @export
 summarize_quantile <- function(design, variable, q,
                                disaggregation = NULL,
@@ -374,7 +513,7 @@ summarize_quantile <- function(design, variable, q,
   # Dispatch to a canonical method when q matches one of the built-ins;
   # otherwise use the firstq/thirdq path is not appropriate. We always go
   # through the median branch by writing a one-off plan row with
-  # method = "median" then patch the label — but the dispatcher does not
+  # method = "median" then patch the label -- but the dispatcher does not
   # support arbitrary q. Use firstq for q=0.25 / thirdq for q=0.75 /
   # median for q=0.5; otherwise temporarily handle via the median plan row
   # AFTER calling the underlying aggregator directly.
@@ -450,7 +589,25 @@ summarize_quantile <- function(design, variable, q,
   new_svyflow_summary(renamed)
 }
 
-#' @rdname summarize
+#' Unweighted minimum of a numeric indicator
+#'
+#' Reports the raw minimum, unweighted by design. Extrema are not survey-
+#' weighted statistics, so weights are intentionally ignored even on a
+#' weighted design. `SE` / `CI_*` are `NA`. Value column is named `Min`.
+#'
+#' @inheritParams summarize_mean
+#'
+#' @return A `svyflow_summary` tibble with `Indicator`, optionally the
+#'   disaggregation column, then `Min` (and `NA` `SE` / `CI_*` / `Count`
+#'   unless `result_only = TRUE`).
+#'
+#' @examples
+#' df  <- data.frame(income = c(150, 320, 0, 980))
+#' des <- make_design(df)
+#' summarize_min(des, "income", variable_label = "Income")
+#'
+#' @seealso [summarize_max()]
+#' @family summarize
 #' @export
 summarize_min <- function(design, variable,
                           disaggregation = NULL,
@@ -463,7 +620,24 @@ summarize_min <- function(design, variable,
                      disaggregation_label, digits, result_only)
 }
 
-#' @rdname summarize
+#' Unweighted maximum of a numeric indicator
+#'
+#' Reports the raw maximum, unweighted by design. See [summarize_min()]
+#' for the rationale. Value column is named `Max`.
+#'
+#' @inheritParams summarize_mean
+#'
+#' @return A `svyflow_summary` tibble with `Indicator`, optionally the
+#'   disaggregation column, then `Max` (and `NA` `SE` / `CI_*` / `Count`
+#'   unless `result_only = TRUE`).
+#'
+#' @examples
+#' df  <- data.frame(income = c(150, 320, 0, 980))
+#' des <- make_design(df)
+#' summarize_max(des, "income", variable_label = "Income")
+#'
+#' @seealso [summarize_min()]
+#' @family summarize
 #' @export
 summarize_max <- function(design, variable,
                           disaggregation = NULL,
