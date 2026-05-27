@@ -266,6 +266,27 @@ test_that("use_labels = FALSE leaves Question / Disaggregation as raw names", {
   expect_gt(sum(res$Disaggregation == "gender"), 0)
 })
 
+test_that("optional plan `group` column is carried into a Group output column", {
+  df <- make_test_data(n = 200)
+  ap <- make_test_plan()
+  ap$group <- ifelse(ap$variable %in% c("gender", "edu_lvl"),
+                     "Demographics", "Other")
+
+  res <- suppressWarnings(analyze_survey(make_design(df), ap))
+  expect_true("Group" %in% names(res))
+  expect_setequal(unique(res$Group), c("Demographics", "Other"))
+  # gender rows are tagged Demographics.
+  expect_true(all(res$Group[res$Question == "gender"] == "Demographics"))
+})
+
+test_that("plan without `group` leaves the default 12-column schema", {
+  df <- make_test_data(n = 150)
+  ap <- make_test_plan()  # no group column
+  res <- suppressWarnings(analyze_survey(make_design(df), ap))
+  expect_false("Group" %in% names(res))
+  expect_equal(ncol(res), 12L)
+})
+
 test_that("plans without label columns are unaffected (backward compat)", {
   df <- make_test_data(n = 200)
   ap <- make_test_plan()  # no label columns

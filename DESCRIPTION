@@ -23,6 +23,7 @@ Depends:
 Imports:
     cli,
     dplyr,
+    openxlsx,
     purrr,
     rlang,
     srvyr,

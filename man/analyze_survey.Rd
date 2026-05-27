@@ -34,6 +34,9 @@ the \code{Disaggregation} column when \code{use_labels = TRUE}. \code{NA} falls
 back to \code{disaggregation} (including the literal \code{"all"}).
 \item \code{repeat_for} (optional): a column name to add a second
 disaggregation axis, or \code{NA}.
+\item \code{group} (optional): a section name for the question. When present it
+is carried into the result as a \code{Group} column and used as a
+section separator by \code{\link[=write_xlsx]{write_xlsx()}}. Does not affect estimates.
 }}
 
 \item{multi_response_sep}{Separator used by \code{\link[=expand_multiselect]{expand_multiselect()}} if it

@@ -25,6 +25,9 @@
 #'      back to `disaggregation` (including the literal `"all"`).
 #'   - `repeat_for` (optional): a column name to add a second
 #'      disaggregation axis, or `NA`.
+#'   - `group` (optional): a section name for the question. When present it
+#'      is carried into the result as a `Group` column and used as a
+#'      section separator by [write_xlsx()]. Does not affect estimates.
 #' @param multi_response_sep Separator used by [expand_multiselect()] if it
 #'   needs to be invoked on the design's data. Defaults to `"; "`.
 #' @param result_format How proportion-producing rows (`select_one`,
@@ -133,10 +136,18 @@ analyze_survey <- function(design,
     return(new_svyflow_results(out))
   }
 
+  # Preserve the optional group/section label across the schema rename
+  # (it is not part of .OUT_RENAME, which would otherwise drop it).
+  group_col <- if (".group" %in% names(out)) out$.group else NULL
+
   # Reorder and rename to the public schema. No NSE here so R CMD check is
   # happy; .OUT_RENAME maps internal -> public column names.
   out <- out[, names(.OUT_RENAME), drop = FALSE]
   names(out) <- unname(.OUT_RENAME)
+
+  # Append the public `Group` column only when the plan supplied `group`,
+  # so the default output schema is unchanged.
+  if (!is.null(group_col)) out$Group <- group_col
 
   new_svyflow_results(out, result_format = result_format, digits = digits)
 }
@@ -151,6 +162,7 @@ run_plan_internal <- function(design, plan, ms_options,
 
   has_var_lbl   <- use_labels && "variable_label"        %in% names(plan)
   has_disag_lbl <- use_labels && "disaggregation_label"  %in% names(plan)
+  has_group     <- "group" %in% names(plan)
 
   results <- vector("list", n)
   cli::cli_progress_bar("Analyzing", total = n, clear = TRUE)
@@ -189,6 +201,9 @@ run_plan_internal <- function(design, plan, ms_options,
         lbl <- row$disaggregation_label
         if (!is.na(lbl)) rows_i$disaggregation <- as.character(lbl)
       }
+      # Carry the optional section/group label through on a temp column;
+      # analyze_survey() promotes it to the public `Group` column.
+      if (has_group) rows_i$.group <- as.character(row$group)
     }
     results[[i]] <- rows_i
 

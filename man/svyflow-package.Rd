@@ -23,7 +23,7 @@ point estimates, standard errors and 95\% confidence intervals. Output
 formatters (Excel, HTML, etc.) are planned and will dispatch on that class.
 }
 \author{
-\strong{Maintainer}: Farhad Nabizada \email{farhad.nabizada@atr-consulting.com}
+\strong{Maintainer}: Sayed Farhad Nabizada \email{nzfarhad@gmail.com}
 
 }
 \keyword{internal}
