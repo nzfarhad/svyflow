@@ -14,7 +14,7 @@ Description: Produces design-correct descriptive statistics (proportions,
     Handles Kobo / SurveyCTO style multi-select variables, single and
     double disaggregation, and is built to be extended with output
     formatters (Excel, HTML, etc.) in later releases.
-License: MIT
+License: GPL (>= 3)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2

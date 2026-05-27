@@ -151,4 +151,4 @@ vignette("svyflow")
 
 ## License
 
-MIT
+GPL (>= 3)
