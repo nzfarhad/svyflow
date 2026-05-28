@@ -21,7 +21,7 @@ test_that("xlsx_theme validates and is overridable", {
   expect_error(xlsx_theme(font_name = c("a", "b")), "single string")
 })
 
-test_that("write_xlsx makes one sheet per disaggregation plus Overall", {
+test_that("write_xlsx makes Overall (first) + disaggregation + Long (last)", {
   skip_if_not_installed("openxlsx")
   df  <- make_test_data(n = 250)
   des <- make_design(df, weights = "weight")
@@ -32,8 +32,29 @@ test_that("write_xlsx makes one sheet per disaggregation plus Overall", {
   expect_true(file.exists(f))
 
   sheets <- openxlsx::getSheetNames(f)
-  expect_true("gender"  %in% sheets)   # the only disaggregation variable
-  expect_true("Overall" %in% sheets)
+  # Overall is first, the disaggregation variable is in the middle,
+  # Long is last.
+  expect_equal(sheets[1],                "Overall")
+  expect_equal(sheets[length(sheets)],   "Long")
+  expect_true("gender" %in% sheets)
+
+  # Long sheet preserves every row of the input as a flat table.
+  long <- openxlsx::read.xlsx(f, sheet = "Long")
+  expect_equal(nrow(long), nrow(res))
+  for (col in c("Disaggregation", "Question", "Result")) {
+    expect_true(col %in% names(long))
+  }
+})
+
+test_that("long_sheet = FALSE drops the Long sheet", {
+  skip_if_not_installed("openxlsx")
+  df  <- make_test_data(n = 200)
+  des <- make_design(df, weights = "weight")
+  res <- suppressWarnings(analyze_survey(des, make_xlsx_plan()))
+
+  f <- tempfile(fileext = ".xlsx")
+  write_xlsx(res, f, long_sheet = FALSE)
+  expect_false("Long" %in% openxlsx::getSheetNames(f))
 })
 
 test_that("crosstab has levels as rows with Overall as the last row", {

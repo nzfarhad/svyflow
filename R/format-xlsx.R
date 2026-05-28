@@ -23,9 +23,15 @@
 #' @param theme An [xlsx_theme()] object controlling fonts, colours and
 #'   fills. Defaults to the standard publication theme.
 #' @param overall_sheet If `TRUE` (default), add a dedicated sheet holding
-#'   the un-disaggregated results for every question.
+#'   the un-disaggregated results for every question. Placed first in the
+#'   workbook.
 #' @param overall_label Row/sheet label for the un-disaggregated results.
 #'   Default `"Overall"`.
+#' @param long_sheet If `TRUE` (default), append a sheet containing the
+#'   full long-form input (every column of `x`, including any
+#'   `repeat_for` rows) as a single flat table. Useful as the data source
+#'   for downstream analysis. Placed last in the workbook.
+#' @param long_label Sheet name for the long-form sheet. Default `"Long"`.
 #' @param with_ci If `TRUE`, compose each value cell as
 #'   `"<estimate> (<CI_low> - <CI_high>)"` using the values exactly as they
 #'   appear in `x` (no re-scaling or re-rounding). Set the precision /
@@ -83,6 +89,8 @@ write_xlsx.svyflow_results <- function(x, file,
                                        theme = xlsx_theme(),
                                        overall_sheet = TRUE,
                                        overall_label = "Overall",
+                                       long_sheet    = TRUE,
+                                       long_label    = "Long",
                                        with_ci       = FALSE,
                                        with_counts   = c("none", "row_label",
                                                          "inline", "parallel"),
@@ -95,20 +103,21 @@ write_xlsx.svyflow_results <- function(x, file,
     stop("`col_width` must be a single positive number (Excel width units).")
   }
 
-  x <- as.data.frame(x, stringsAsFactors = FALSE)
+  x_full <- as.data.frame(x, stringsAsFactors = FALSE)
   required <- c("Disaggregation", "Disaggregation_level", "Question",
                 "Response", "Aggregation_method", "Result")
-  missing_cols <- setdiff(required, names(x))
+  missing_cols <- setdiff(required, names(x_full))
   if (length(missing_cols) > 0) {
     stop("`x` is missing required column(s): ",
          paste(shQuote(missing_cols), collapse = ", "))
   }
+  if (nrow(x_full) == 0) stop("`x` has no rows to export.")
 
-  # v1: exclude double-disaggregation rows.
-  if ("repeat_for" %in% names(x)) {
-    x <- x[is.na(x$repeat_for), , drop = FALSE]
-  }
-  if (nrow(x) == 0) stop("`x` has no rows to export.")
+  # Crosstab sheets exclude double-disaggregation (`repeat_for`) rows;
+  # the long sheet keeps every row of the original input as-is.
+  x <- if ("repeat_for" %in% names(x_full)) {
+    x_full[is.na(x_full$repeat_for), , drop = FALSE]
+  } else x_full
 
   has_group <- "Group" %in% names(x)
   q_order   <- unique(x$Question)
@@ -120,6 +129,16 @@ write_xlsx.svyflow_results <- function(x, file,
   wb     <- openxlsx::createWorkbook()
   styles <- .xlsx_styles(theme)
 
+  # Sheet order: Overall first, then one per disaggregation variable,
+  # then the Long sheet last.
+  if (isTRUE(overall_sheet) && nrow(x) > 0) {
+    .write_xtab_sheet(wb, x, sheet = .safe_sheet(overall_label), disag = NULL,
+                      q_order = q_order, q_group = q_group,
+                      has_group = has_group, overall_label = overall_label,
+                      styles = styles,
+                      with_ci = with_ci, with_counts = with_counts,
+                      col_width = col_width)
+  }
   for (g in disag_vars) {
     .write_xtab_sheet(wb, x, sheet = .safe_sheet(g), disag = g,
                       q_order = q_order, q_group = q_group,
@@ -128,13 +147,9 @@ write_xlsx.svyflow_results <- function(x, file,
                       with_ci = with_ci, with_counts = with_counts,
                       col_width = col_width)
   }
-  if (isTRUE(overall_sheet)) {
-    .write_xtab_sheet(wb, x, sheet = .safe_sheet(overall_label), disag = NULL,
-                      q_order = q_order, q_group = q_group,
-                      has_group = has_group, overall_label = overall_label,
-                      styles = styles,
-                      with_ci = with_ci, with_counts = with_counts,
-                      col_width = col_width)
+  if (isTRUE(long_sheet)) {
+    .write_long_sheet(wb, x_full, sheet = .safe_sheet(long_label),
+                      styles = styles)
   }
 
   openxlsx::saveWorkbook(wb, file, overwrite = TRUE)
@@ -367,6 +382,30 @@ write_xlsx.svyflow_results <- function(x, file,
       fgFill         = theme$section_fill
     )
   )
+}
+
+# Write the long-form input as a single flat table on its own sheet.
+# Header row styled, body styled, header row frozen, columns auto-sized to
+# content (capped). Values are written as-is — no number formatting.
+.write_long_sheet <- function(wb, x, sheet, styles) {
+  openxlsx::addWorksheet(wb, sheet)
+  openxlsx::writeData(wb, sheet, x, startRow = 1, startCol = 1,
+                      colNames = TRUE)
+  n_col <- ncol(x); n_row <- nrow(x)
+  openxlsx::addStyle(wb, sheet, styles$header, rows = 1, cols = seq_len(n_col),
+                     gridExpand = TRUE, stack = TRUE)
+  if (n_row > 0) {
+    openxlsx::addStyle(wb, sheet, styles$body,
+                       rows = 2:(n_row + 1L), cols = seq_len(n_col),
+                       gridExpand = TRUE, stack = TRUE)
+  }
+  openxlsx::freezePane(wb, sheet, firstActiveRow = 2)
+  for (j in seq_len(n_col)) {
+    vals <- c(names(x)[j], as.character(x[[j]]))
+    vals <- vals[!is.na(vals)]
+    w <- if (length(vals)) min(max(max(nchar(vals)) + 2L, 10L), 40L) else 12L
+    openxlsx::setColWidths(wb, sheet, cols = j, widths = w)
+  }
 }
 
 # Write all question blocks for one sheet. disag = NULL means the Overall

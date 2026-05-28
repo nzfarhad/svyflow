@@ -25,6 +25,11 @@
   ~196 px in Excel) controlling the fixed width of every value column;
   long headers wrap within that width. The row-label column sizes itself
   to its content, capped at 40.
+* `write_xlsx()` workbook layout: the `Overall` sheet is now placed
+  **first**, followed by the per-disaggregation sheets, followed by a new
+  `Long` sheet at the end carrying the full long-form input as a single
+  flat table. Toggle the long sheet via `long_sheet = FALSE` and rename
+  via `long_label = "..."`.
 * `xlsx_theme()` supplies the workbook styling (a clean publication palette
   by default) and is fully overridable (font, header fill, header/body font
   colours and sizes, borders, section styling).

@@ -13,6 +13,8 @@ write_xlsx(x, file, ...)
   theme = xlsx_theme(),
   overall_sheet = TRUE,
   overall_label = "Overall",
+  long_sheet = TRUE,
+  long_label = "Long",
   with_ci = FALSE,
   with_counts = c("none", "row_label", "inline", "parallel"),
   col_width = 21,
@@ -31,10 +33,18 @@ frame with the public columns, optionally a \code{Group} column).}
 fills. Defaults to the standard publication theme.}
 
 \item{overall_sheet}{If \code{TRUE} (default), add a dedicated sheet holding
-the un-disaggregated results for every question.}
+the un-disaggregated results for every question. Placed first in the
+workbook.}
 
 \item{overall_label}{Row/sheet label for the un-disaggregated results.
 Default \code{"Overall"}.}
+
+\item{long_sheet}{If \code{TRUE} (default), append a sheet containing the
+full long-form input (every column of \code{x}, including any
+\code{repeat_for} rows) as a single flat table. Useful as the data source
+for downstream analysis. Placed last in the workbook.}
+
+\item{long_label}{Sheet name for the long-form sheet. Default \code{"Long"}.}
 
 \item{with_ci}{If \code{TRUE}, compose each value cell as
 \code{"<estimate> (<CI_low> - <CI_high>)"} using the values exactly as they
