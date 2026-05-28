@@ -13,8 +13,18 @@
     `"<estimate> (<CI_low> - <CI_high>)"`, respecting whatever scale /
     rounding is already in the input (set it upstream with
     `format_results()`).
-  - `with_counts = "row_label"` appends ` (n=<Denominator>)` to every row
-    label (disaggregation levels and the Overall row).
+  - `with_counts` controls how unweighted counts appear, with four modes:
+    `"none"` (default), `"row_label"` (append ` (n=<Denominator>)` to each
+    row label), `"inline"` (row-label suffix plus ` (n=<Count>)` on every
+    value cell; with `with_ci` the count nests inside the CI parens as
+    `"<est> (<lo> - <hi>; n=N)"`), and `"parallel"` (row-label suffix plus a
+    sibling `"(n)"` column after every value column carrying the per-cell
+    Count). The two cell-level modes also carry the level totals on the
+    row labels automatically.
+* `write_xlsx()` gains a `col_width` parameter (default `21`,
+  ~196 px in Excel) controlling the fixed width of every value column;
+  long headers wrap within that width. The row-label column sizes itself
+  to its content, capped at 40.
 * `xlsx_theme()` supplies the workbook styling (a clean publication palette
   by default) and is fully overridable (font, header fill, header/body font
   colours and sizes, borders, section styling).

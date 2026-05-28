@@ -32,11 +32,20 @@
 #'   scale upstream with [format_results()]. Rows without confidence
 #'   intervals (`min` / `max`) fall back to a plain estimate. Default
 #'   `FALSE`.
-#' @param with_counts How to display unweighted counts. `"none"` (default)
-#'   omits them. `"row_label"` appends ` (n=<N>)` to every row label
-#'   (disaggregation levels and the Overall row), where `N` is the level's
-#'   `Denominator`. Requires a `Denominator` column on `x`; missing or `NA`
-#'   denominators are silently skipped.
+#' @param with_counts How to display unweighted counts. One of:
+#'   - `"none"` (default) — omit counts entirely.
+#'   - `"row_label"` — append ` (n=<Denominator>)` to every row label
+#'     (disaggregation levels and the Overall row), using the level's
+#'     total valid n.
+#'   - `"inline"` — same row-label suffix as `"row_label"` **plus**
+#'     ` (n=<Count>)` appended to every value cell using the per-cell
+#'     unweighted Count. Combines with `with_ci = TRUE` as
+#'     `"<est> (<lo> - <hi>; n=<Count>)"`.
+#'   - `"parallel"` — same row-label suffix as `"row_label"` **plus** a
+#'     sibling `"(n)"` column right after every response/value column
+#'     carrying the per-cell Count.
+#'   Requires the relevant column (`Denominator` / `Count`) on `x`; missing
+#'   or `NA` values are silently skipped.
 #' @param col_width Fixed width (Excel character-width units, ~9.3 px per
 #'   unit at Calibri 11 pt) applied to every value column. Default `21`
 #'   (~196 px) — comfortable for `"<est> (<lo> - <hi>)"` with one decimal.
@@ -75,7 +84,8 @@ write_xlsx.svyflow_results <- function(x, file,
                                        overall_sheet = TRUE,
                                        overall_label = "Overall",
                                        with_ci       = FALSE,
-                                       with_counts   = c("none", "row_label"),
+                                       with_counts   = c("none", "row_label",
+                                                         "inline", "parallel"),
                                        col_width     = 21,
                                        ...) {
   theme       <- .as_xlsx_theme(theme)
@@ -175,13 +185,18 @@ write_xlsx.svyflow_results <- function(x, file,
 # with the question label) holds the row labels (disaggregation levels +
 # the overall label); remaining columns hold the values, written as-is.
 #
-# `with_ci`:        if TRUE, each cell becomes "<est> (<lo> - <hi>)" composed
-#                   from Result / CI_low / CI_high in the source rows.
-# `with_counts`:    "row_label" appends " (n=N)" to each row label using
-#                   the level's Denominator; "none" leaves labels alone.
+# `with_ci`:       if TRUE, each value cell becomes "<est> (<lo> - <hi>)"
+#                  composed from Result / CI_low / CI_high in the source rows.
+# `with_counts`:   "row_label" appends " (n=<Denominator>)" to each row label;
+#                  "inline" appends " (n=<Count>)" to each value cell (and
+#                  combines with with_ci as "<est> (<lo> - <hi>; n=<Count>)");
+#                  "parallel" adds a sibling "(n)" column after every value
+#                  column carrying the per-cell Count; "none" leaves both
+#                  labels and values alone.
 .question_block <- function(disagg_rows, all_rows, qlabel, overall_label,
                             with_ci = FALSE,
-                            with_counts = c("none", "row_label")) {
+                            with_counts = c("none", "row_label",
+                                            "inline", "parallel")) {
   with_counts <- match.arg(with_counts)
   rows_all  <- rbind(disagg_rows, all_rows)
   na_val    <- if (is.character(rows_all$Result)) NA_character_ else NA_real_
@@ -201,9 +216,11 @@ write_xlsx.svyflow_results <- function(x, file,
     }
   }
 
-  # Optional "(n=N)" suffix on the row labels.
+  # Row-label denominator suffix. Applied for `row_label` AND `inline` /
+  # `parallel` (level totals are useful context whenever any count is shown).
   display_labels <- base_labels
-  if (with_counts == "row_label" && "Denominator" %in% names(rows_all)) {
+  if (with_counts %in% c("row_label", "inline", "parallel") &&
+      "Denominator" %in% names(rows_all)) {
     display_labels <- vapply(base_labels, function(lbl) {
       rr <- rows_for(lbl)
       if (!nrow(rr)) return(lbl)
@@ -214,50 +231,101 @@ write_xlsx.svyflow_results <- function(x, file,
     }, character(1))
   }
 
-  # Compose one cell, respecting with_ci. `est`, `lo`, `hi` are taken
-  # verbatim from the source frame (no re-scaling / re-rounding).
-  compose <- function(est, lo, hi) {
-    if (!with_ci) return(est)
-    if (length(est) == 0 || is.na(est)) return(NA_character_)
-    if (length(lo) == 0 || is.na(lo) ||
-        length(hi) == 0 || is.na(hi)) return(as.character(est))
-    paste0(as.character(est), " (",
-           as.character(lo), " - ",
-           as.character(hi), ")")
-  }
-  cell_fun_val <- if (with_ci) NA_character_ else na_val
+  # Whether any value column needs to be character (with_ci composes a
+  # string; with_counts = "inline" likewise; "parallel" keeps the value
+  # column type intact).
+  cell_is_char <- with_ci || with_counts == "inline"
+  cell_fun_val <- if (cell_is_char) NA_character_ else na_val
 
-  # Value lookup for a (level, optional response) pair.
-  build_cell <- function(rr, response = NULL) {
+  # Compose one value cell from (est, lo, hi, n), respecting with_ci and
+  # with_counts. Values are taken verbatim — no rescaling or rerounding.
+  compose <- function(est, lo, hi, n) {
+    if (length(est) == 0 || is.na(est)) {
+      return(if (cell_is_char) NA_character_ else na_val)
+    }
+    base <- as.character(est)
+    has_ci <- length(lo) > 0L && !is.na(lo) &&
+              length(hi) > 0L && !is.na(hi)
+    inline_count <- (with_counts == "inline") && !is.na(n) && is.finite(n)
+
+    if (with_ci && has_ci) {
+      tail <- if (inline_count) {
+        sprintf(" - %s; n=%d)", as.character(hi), as.integer(n))
+      } else {
+        sprintf(" - %s)", as.character(hi))
+      }
+      return(paste0(base, " (", as.character(lo), tail))
+    }
+    if (inline_count) {
+      return(paste0(base, " (n=", as.integer(n), ")"))
+    }
+    if (cell_is_char) as.character(est) else est
+  }
+
+  # Pull (est, lo, hi, n) for a (level [, response]) pair.
+  pull <- function(rr, response = NULL) {
     if (!is.null(response)) {
       rr <- rr[!is.na(rr$Response) & rr$Response == response, , drop = FALSE]
     }
-    if (!nrow(rr)) return(if (with_ci) NA_character_ else na_val)
-    compose(
-      rr$Result[1],
-      if ("CI_low"  %in% names(rr)) rr$CI_low[1]  else NA,
-      if ("CI_high" %in% names(rr)) rr$CI_high[1] else NA
+    if (!nrow(rr)) {
+      return(list(est = NA, lo = NA, hi = NA, n = NA_integer_))
+    }
+    list(
+      est = rr$Result[1],
+      lo  = if ("CI_low"  %in% names(rr)) rr$CI_low[1]  else NA,
+      hi  = if ("CI_high" %in% names(rr)) rr$CI_high[1] else NA,
+      n   = if ("Count"   %in% names(rr)) rr$Count[1]   else NA_integer_
     )
   }
 
-  df <- data.frame(.row = display_labels, check.names = FALSE,
-                   stringsAsFactors = FALSE)
+  build_value <- function(rr, response = NULL) {
+    p <- pull(rr, response)
+    compose(p$est, p$lo, p$hi, p$n)
+  }
+  build_count <- function(rr, response = NULL) {
+    p <- pull(rr, response)
+    if (is.na(p$n)) NA_integer_ else as.integer(p$n)
+  }
+
+  # Build columns as a named list so duplicate "(n)" headers survive into
+  # the final data.frame (needed for the "parallel" layout).
+  col_names <- qlabel
+  col_vals  <- list(display_labels)
+  add_col <- function(name, vals) {
+    col_names <<- c(col_names, name)
+    col_vals[[length(col_vals) + 1L]] <<- vals
+  }
 
   if (numeric_q) {
     vcol <- .nice_method(stats::na.omit(rows_all$Aggregation_method)[1])
-    df[[vcol]] <- vapply(base_labels, function(lbl) build_cell(rows_for(lbl)),
-                         FUN.VALUE = cell_fun_val)
+    add_col(vcol,
+            vapply(base_labels, function(lbl) build_value(rows_for(lbl)),
+                   FUN.VALUE = cell_fun_val))
+    if (with_counts == "parallel") {
+      add_col("(n)",
+              vapply(base_labels, function(lbl) build_count(rows_for(lbl)),
+                     FUN.VALUE = NA_integer_))
+    }
   } else {
     responses <- unique(rows_all$Response)
     responses <- responses[!is.na(responses)]
     for (resp in responses) {
-      df[[resp]] <- vapply(base_labels,
-                           function(lbl) build_cell(rows_for(lbl), resp),
-                           FUN.VALUE = cell_fun_val)
+      add_col(resp,
+              vapply(base_labels,
+                     function(lbl) build_value(rows_for(lbl), resp),
+                     FUN.VALUE = cell_fun_val))
+      if (with_counts == "parallel") {
+        add_col("(n)",
+                vapply(base_labels,
+                       function(lbl) build_count(rows_for(lbl), resp),
+                       FUN.VALUE = NA_integer_))
+      }
     }
   }
 
-  names(df)[1] <- qlabel
+  df <- as.data.frame(col_vals, check.names = FALSE,
+                      stringsAsFactors = FALSE)
+  names(df) <- col_names
   df
 }
 

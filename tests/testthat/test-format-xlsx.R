@@ -171,6 +171,76 @@ test_that("with_counts = 'row_label' appends (n=N) to level labels", {
   expect_true(any(grepl("^Overall \\(n=\\d+\\)$", col1)))
 })
 
+test_that("with_counts = 'inline' appends (n=N) to value cells", {
+  skip_if_not_installed("openxlsx")
+  df  <- make_test_data(n = 250)
+  des <- make_design(df, weights = "weight")
+  ap  <- tibble::tribble(
+    ~variable, ~kobo_type,   ~aggregation_method, ~disaggregation,
+    "edu_lvl", "select_one", NA,                  "all",
+    "edu_lvl", "select_one", NA,                  "gender"
+  )
+  res <- suppressWarnings(analyze_survey(des, ap,
+                                         result_format = "percent_fmt",
+                                         digits = 0))
+  f <- tempfile(fileext = ".xlsx")
+  write_xlsx(res, f, with_counts = "inline")
+  g <- openxlsx::read.xlsx(f, sheet = "gender", colNames = FALSE)
+  cells <- unlist(g[-1, -1])
+  cells <- cells[!is.na(cells)]
+  expect_true(all(grepl("\\(n=\\d+\\)$", cells)))
+  # Row labels also pick up (n=Denom) under "inline".
+  col1 <- g[[1]]
+  expect_true(any(grepl("^male \\(n=\\d+\\)$",    col1)))
+  expect_true(any(grepl("^Overall \\(n=\\d+\\)$", col1)))
+})
+
+test_that("with_counts = 'inline' + with_ci combine inside the CI parens", {
+  skip_if_not_installed("openxlsx")
+  df  <- make_test_data(n = 250)
+  des <- make_design(df, weights = "weight")
+  ap  <- tibble::tribble(
+    ~variable, ~kobo_type,   ~aggregation_method, ~disaggregation,
+    "edu_lvl", "select_one", NA,                  "all",
+    "edu_lvl", "select_one", NA,                  "gender"
+  )
+  res <- suppressWarnings(analyze_survey(des, ap,
+                                         result_format = "percent_fmt",
+                                         digits = 0))
+  f <- tempfile(fileext = ".xlsx")
+  write_xlsx(res, f, with_counts = "inline", with_ci = TRUE)
+  g <- openxlsx::read.xlsx(f, sheet = "gender", colNames = FALSE)
+  cells <- unlist(g[-1, -1])
+  cells <- cells[!is.na(cells)]
+  expect_true(all(grepl(
+    "^[0-9]+% \\([0-9]+% - [0-9]+%; n=\\d+\\)$", cells
+  )))
+})
+
+test_that("with_counts = 'parallel' adds a sibling (n) column after each value column", {
+  skip_if_not_installed("openxlsx")
+  df  <- make_test_data(n = 250)
+  des <- make_design(df, weights = "weight")
+  ap  <- tibble::tribble(
+    ~variable, ~kobo_type,   ~aggregation_method, ~disaggregation,
+    "edu_lvl", "select_one", NA,                  "all",
+    "edu_lvl", "select_one", NA,                  "gender"
+  )
+  res <- suppressWarnings(analyze_survey(des, ap))  # default proportion
+  f <- tempfile(fileext = ".xlsx")
+  write_xlsx(res, f, with_counts = "parallel")
+  g <- openxlsx::read.xlsx(f, sheet = "gender", colNames = FALSE)
+  hdr <- as.character(g[1, ])
+  # First column is the question label; every other column should be a
+  # response followed by an "(n)" sibling -> doubled count.
+  expect_true(sum(hdr == "(n)", na.rm = TRUE) >= 4L)
+  # Row labels also pick up (n=Denom) under "parallel".
+  col1 <- g[[1]]
+  expect_true(any(grepl("^male \\(n=\\d+\\)$",    col1)))
+  expect_true(any(grepl("^female \\(n=\\d+\\)$",  col1)))
+  expect_true(any(grepl("^Overall \\(n=\\d+\\)$", col1)))
+})
+
 test_that("with_counts is validated via match.arg", {
   skip_if_not_installed("openxlsx")
   df  <- make_test_data(n = 100)

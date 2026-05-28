@@ -14,7 +14,7 @@ write_xlsx(x, file, ...)
   overall_sheet = TRUE,
   overall_label = "Overall",
   with_ci = FALSE,
-  with_counts = c("none", "row_label"),
+  with_counts = c("none", "row_label", "inline", "parallel"),
   col_width = 21,
   ...
 )
@@ -43,11 +43,22 @@ scale upstream with \code{\link[=format_results]{format_results()}}. Rows withou
 intervals (\code{min} / \code{max}) fall back to a plain estimate. Default
 \code{FALSE}.}
 
-\item{with_counts}{How to display unweighted counts. \code{"none"} (default)
-omits them. \code{"row_label"} appends \verb{ (n=<N>)} to every row label
-(disaggregation levels and the Overall row), where \code{N} is the level's
-\code{Denominator}. Requires a \code{Denominator} column on \code{x}; missing or \code{NA}
-denominators are silently skipped.}
+\item{with_counts}{How to display unweighted counts. One of:
+\itemize{
+\item \code{"none"} (default) — omit counts entirely.
+\item \code{"row_label"} — append \verb{ (n=<Denominator>)} to every row label
+(disaggregation levels and the Overall row), using the level's
+total valid n.
+\item \code{"inline"} — same row-label suffix as \code{"row_label"} \strong{plus}
+\verb{ (n=<Count>)} appended to every value cell using the per-cell
+unweighted Count. Combines with \code{with_ci = TRUE} as
+\code{"<est> (<lo> - <hi>; n=<Count>)"}.
+\item \code{"parallel"} — same row-label suffix as \code{"row_label"} \strong{plus} a
+sibling \code{"(n)"} column right after every response/value column
+carrying the per-cell Count.
+Requires the relevant column (\code{Denominator} / \code{Count}) on \code{x}; missing
+or \code{NA} values are silently skipped.
+}}
 
 \item{col_width}{Fixed width (Excel character-width units, ~9.3 px per
 unit at Calibri 11 pt) applied to every value column. Default \code{21}
