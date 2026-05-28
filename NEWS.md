@@ -8,6 +8,13 @@
   `Overall` summary row last), in plan order. Values are written exactly as
   they appear in the input object (no number formatting is imposed) — pass
   the default proportion output or run `format_results()` first.
+* `write_xlsx()` gains two display options:
+  - `with_ci = TRUE` composes each value cell as
+    `"<estimate> (<CI_low> - <CI_high>)"`, respecting whatever scale /
+    rounding is already in the input (set it upstream with
+    `format_results()`).
+  - `with_counts = "row_label"` appends ` (n=<Denominator>)` to every row
+    label (disaggregation levels and the Overall row).
 * `xlsx_theme()` supplies the workbook styling (a clean publication palette
   by default) and is fully overridable (font, header fill, header/body font
   colours and sizes, borders, section styling).

@@ -13,6 +13,9 @@ write_xlsx(x, file, ...)
   theme = xlsx_theme(),
   overall_sheet = TRUE,
   overall_label = "Overall",
+  with_ci = FALSE,
+  with_counts = c("none", "row_label"),
+  col_width = 21,
   ...
 )
 }
@@ -32,6 +35,25 @@ the un-disaggregated results for every question.}
 
 \item{overall_label}{Row/sheet label for the un-disaggregated results.
 Default \code{"Overall"}.}
+
+\item{with_ci}{If \code{TRUE}, compose each value cell as
+\code{"<estimate> (<CI_low> - <CI_high>)"} using the values exactly as they
+appear in \code{x} (no re-scaling or re-rounding). Set the precision /
+scale upstream with \code{\link[=format_results]{format_results()}}. Rows without confidence
+intervals (\code{min} / \code{max}) fall back to a plain estimate. Default
+\code{FALSE}.}
+
+\item{with_counts}{How to display unweighted counts. \code{"none"} (default)
+omits them. \code{"row_label"} appends \verb{ (n=<N>)} to every row label
+(disaggregation levels and the Overall row), where \code{N} is the level's
+\code{Denominator}. Requires a \code{Denominator} column on \code{x}; missing or \code{NA}
+denominators are silently skipped.}
+
+\item{col_width}{Fixed width (Excel character-width units, ~9.3 px per
+unit at Calibri 11 pt) applied to every value column. Default \code{21}
+(~196 px) — comfortable for \code{"<est> (<lo> - <hi>)"} with one decimal.
+The row-label (first) column always sizes itself to its content.
+Long column \strong{headers wrap} within the fixed width automatically.}
 }
 \value{
 The output \code{file} path, invisibly.

@@ -129,6 +129,58 @@ test_that("custom theme is accepted (object or list)", {
   expect_invisible(write_xlsx(res, f2, theme = list(header_fill = "#1E3A5F")))
 })
 
+test_that("with_ci composes 'est (lo - hi)' cells respecting input format", {
+  skip_if_not_installed("openxlsx")
+  df  <- make_test_data(n = 250)
+  des <- make_design(df, weights = "weight")
+  ap  <- tibble::tribble(
+    ~variable, ~kobo_type,   ~aggregation_method, ~disaggregation,
+    "edu_lvl", "select_one", NA,                  "all",
+    "edu_lvl", "select_one", NA,                  "gender"
+  )
+  res <- suppressWarnings(analyze_survey(des, ap,
+                                         result_format = "percent_fmt",
+                                         digits = 0))
+  f <- tempfile(fileext = ".xlsx")
+  write_xlsx(res, f, with_ci = TRUE)
+  g <- openxlsx::read.xlsx(f, sheet = "gender", colNames = FALSE)
+  # Pull out the value cells (everything below the header row of the block,
+  # excluding the row-label column).
+  cells <- unlist(g[-1, -1])
+  cells <- cells[!is.na(cells)]
+  # In percent_fmt mode each cell carries "% (...% - ...%)".
+  expect_true(all(grepl("^[0-9]+% \\([0-9]+% - [0-9]+%\\)$", cells)))
+})
+
+test_that("with_counts = 'row_label' appends (n=N) to level labels", {
+  skip_if_not_installed("openxlsx")
+  df  <- make_test_data(n = 250)
+  des <- make_design(df, weights = "weight")
+  ap  <- tibble::tribble(
+    ~variable, ~kobo_type,   ~aggregation_method, ~disaggregation,
+    "edu_lvl", "select_one", NA,                  "all",
+    "edu_lvl", "select_one", NA,                  "gender"
+  )
+  res <- suppressWarnings(analyze_survey(des, ap))
+  f <- tempfile(fileext = ".xlsx")
+  write_xlsx(res, f, with_counts = "row_label")
+  g <- openxlsx::read.xlsx(f, sheet = "gender", colNames = FALSE)
+  col1 <- g[[1]]
+  expect_true(any(grepl("^male \\(n=\\d+\\)$",    col1)))
+  expect_true(any(grepl("^female \\(n=\\d+\\)$",  col1)))
+  expect_true(any(grepl("^Overall \\(n=\\d+\\)$", col1)))
+})
+
+test_that("with_counts is validated via match.arg", {
+  skip_if_not_installed("openxlsx")
+  df  <- make_test_data(n = 100)
+  des <- make_design(df)
+  res <- suppressWarnings(analyze_survey(des, make_xlsx_plan()))
+  expect_error(write_xlsx(res, tempfile(fileext=".xlsx"),
+                          with_counts = "nope"),
+               "should be one of")
+})
+
 test_that("missing required columns error clearly", {
   skip_if_not_installed("openxlsx")
   bad <- structure(data.frame(x = 1), class = c("svyflow_results", "data.frame"))

@@ -26,6 +26,22 @@
 #'   the un-disaggregated results for every question.
 #' @param overall_label Row/sheet label for the un-disaggregated results.
 #'   Default `"Overall"`.
+#' @param with_ci If `TRUE`, compose each value cell as
+#'   `"<estimate> (<CI_low> - <CI_high>)"` using the values exactly as they
+#'   appear in `x` (no re-scaling or re-rounding). Set the precision /
+#'   scale upstream with [format_results()]. Rows without confidence
+#'   intervals (`min` / `max`) fall back to a plain estimate. Default
+#'   `FALSE`.
+#' @param with_counts How to display unweighted counts. `"none"` (default)
+#'   omits them. `"row_label"` appends ` (n=<N>)` to every row label
+#'   (disaggregation levels and the Overall row), where `N` is the level's
+#'   `Denominator`. Requires a `Denominator` column on `x`; missing or `NA`
+#'   denominators are silently skipped.
+#' @param col_width Fixed width (Excel character-width units, ~9.3 px per
+#'   unit at Calibri 11 pt) applied to every value column. Default `21`
+#'   (~196 px) — comfortable for `"<est> (<lo> - <hi>)"` with one decimal.
+#'   The row-label (first) column always sizes itself to its content.
+#'   Long column **headers wrap** within the fixed width automatically.
 #' @param ... Unused; for S3 compatibility.
 #'
 #' @return The output `file` path, invisibly.
@@ -58,8 +74,16 @@ write_xlsx.svyflow_results <- function(x, file,
                                        theme = xlsx_theme(),
                                        overall_sheet = TRUE,
                                        overall_label = "Overall",
+                                       with_ci       = FALSE,
+                                       with_counts   = c("none", "row_label"),
+                                       col_width     = 21,
                                        ...) {
-  theme <- .as_xlsx_theme(theme)
+  theme       <- .as_xlsx_theme(theme)
+  with_counts <- match.arg(with_counts)
+  if (!is.numeric(col_width) || length(col_width) != 1 ||
+      is.na(col_width) || col_width <= 0) {
+    stop("`col_width` must be a single positive number (Excel width units).")
+  }
 
   x <- as.data.frame(x, stringsAsFactors = FALSE)
   required <- c("Disaggregation", "Disaggregation_level", "Question",
@@ -90,13 +114,17 @@ write_xlsx.svyflow_results <- function(x, file,
     .write_xtab_sheet(wb, x, sheet = .safe_sheet(g), disag = g,
                       q_order = q_order, q_group = q_group,
                       has_group = has_group, overall_label = overall_label,
-                      styles = styles)
+                      styles = styles,
+                      with_ci = with_ci, with_counts = with_counts,
+                      col_width = col_width)
   }
   if (isTRUE(overall_sheet)) {
     .write_xtab_sheet(wb, x, sheet = .safe_sheet(overall_label), disag = NULL,
                       q_order = q_order, q_group = q_group,
                       has_group = has_group, overall_label = overall_label,
-                      styles = styles)
+                      styles = styles,
+                      with_ci = with_ci, with_counts = with_counts,
+                      col_width = col_width)
   }
 
   openxlsx::saveWorkbook(wb, file, overwrite = TRUE)
@@ -146,15 +174,23 @@ write_xlsx.svyflow_results <- function(x, file,
 # Build one question's crosstab block as a data.frame. First column (named
 # with the question label) holds the row labels (disaggregation levels +
 # the overall label); remaining columns hold the values, written as-is.
-.question_block <- function(disagg_rows, all_rows, qlabel, overall_label) {
-  rows_all <- rbind(disagg_rows, all_rows)
-  na_val   <- if (is.character(rows_all$Result)) NA_character_ else NA_real_
+#
+# `with_ci`:        if TRUE, each cell becomes "<est> (<lo> - <hi>)" composed
+#                   from Result / CI_low / CI_high in the source rows.
+# `with_counts`:    "row_label" appends " (n=N)" to each row label using
+#                   the level's Denominator; "none" leaves labels alone.
+.question_block <- function(disagg_rows, all_rows, qlabel, overall_label,
+                            with_ci = FALSE,
+                            with_counts = c("none", "row_label")) {
+  with_counts <- match.arg(with_counts)
+  rows_all  <- rbind(disagg_rows, all_rows)
+  na_val    <- if (is.character(rows_all$Result)) NA_character_ else NA_real_
   numeric_q <- all(is.na(rows_all$Response))
 
-  lvls <- unique(disagg_rows$Disaggregation_level)
-  lvls <- lvls[!is.na(lvls)]
+  lvls        <- unique(disagg_rows$Disaggregation_level)
+  lvls        <- lvls[!is.na(lvls)]
   has_overall <- nrow(all_rows) > 0
-  row_labels  <- c(lvls, if (has_overall) overall_label)
+  base_labels <- c(lvls, if (has_overall) overall_label)
 
   rows_for <- function(lbl) {
     if (has_overall && identical(lbl, overall_label)) {
@@ -165,24 +201,59 @@ write_xlsx.svyflow_results <- function(x, file,
     }
   }
 
-  df <- data.frame(.row = row_labels, check.names = FALSE,
+  # Optional "(n=N)" suffix on the row labels.
+  display_labels <- base_labels
+  if (with_counts == "row_label" && "Denominator" %in% names(rows_all)) {
+    display_labels <- vapply(base_labels, function(lbl) {
+      rr <- rows_for(lbl)
+      if (!nrow(rr)) return(lbl)
+      d <- rr$Denominator[!is.na(rr$Denominator)]
+      if (length(d) && is.finite(d[1])) {
+        sprintf("%s (n=%d)", lbl, as.integer(d[1]))
+      } else lbl
+    }, character(1))
+  }
+
+  # Compose one cell, respecting with_ci. `est`, `lo`, `hi` are taken
+  # verbatim from the source frame (no re-scaling / re-rounding).
+  compose <- function(est, lo, hi) {
+    if (!with_ci) return(est)
+    if (length(est) == 0 || is.na(est)) return(NA_character_)
+    if (length(lo) == 0 || is.na(lo) ||
+        length(hi) == 0 || is.na(hi)) return(as.character(est))
+    paste0(as.character(est), " (",
+           as.character(lo), " - ",
+           as.character(hi), ")")
+  }
+  cell_fun_val <- if (with_ci) NA_character_ else na_val
+
+  # Value lookup for a (level, optional response) pair.
+  build_cell <- function(rr, response = NULL) {
+    if (!is.null(response)) {
+      rr <- rr[!is.na(rr$Response) & rr$Response == response, , drop = FALSE]
+    }
+    if (!nrow(rr)) return(if (with_ci) NA_character_ else na_val)
+    compose(
+      rr$Result[1],
+      if ("CI_low"  %in% names(rr)) rr$CI_low[1]  else NA,
+      if ("CI_high" %in% names(rr)) rr$CI_high[1] else NA
+    )
+  }
+
+  df <- data.frame(.row = display_labels, check.names = FALSE,
                    stringsAsFactors = FALSE)
 
   if (numeric_q) {
     vcol <- .nice_method(stats::na.omit(rows_all$Aggregation_method)[1])
-    df[[vcol]] <- vapply(row_labels, function(lbl) {
-      rr <- rows_for(lbl)
-      if (nrow(rr)) rr$Result[1] else na_val
-    }, FUN.VALUE = na_val)
+    df[[vcol]] <- vapply(base_labels, function(lbl) build_cell(rows_for(lbl)),
+                         FUN.VALUE = cell_fun_val)
   } else {
     responses <- unique(rows_all$Response)
     responses <- responses[!is.na(responses)]
     for (resp in responses) {
-      df[[resp]] <- vapply(row_labels, function(lbl) {
-        rr <- rows_for(lbl)
-        v  <- rr$Result[!is.na(rr$Response) & rr$Response == resp]
-        if (length(v)) v[1] else na_val
-      }, FUN.VALUE = na_val)
+      df[[resp]] <- vapply(base_labels,
+                           function(lbl) build_cell(rows_for(lbl), resp),
+                           FUN.VALUE = cell_fun_val)
     }
   }
 
@@ -233,12 +304,27 @@ write_xlsx.svyflow_results <- function(x, file,
 # Write all question blocks for one sheet. disag = NULL means the Overall
 # sheet (only the un-disaggregated rows).
 .write_xtab_sheet <- function(wb, x, sheet, disag, q_order, q_group,
-                              has_group, overall_label, styles) {
+                              has_group, overall_label, styles,
+                              with_ci = FALSE,
+                              with_counts = "none",
+                              col_width = 21) {
   openxlsx::addWorksheet(wb, sheet)
   rptr       <- 1L
   max_cols   <- 1L
-  prev_group <- ""            # sentinel that never equals a real group
+  prev_group <- ""            # sentinel that never equals a real group
   any_block  <- FALSE
+  col_chars  <- integer(0)    # per-column max content length, for autosizing
+
+  upd <- function(values, col) {
+    if (length(col_chars) < col) {
+      col_chars <<- c(col_chars, integer(col - length(col_chars)))
+    }
+    vals <- as.character(values)
+    vals <- vals[!is.na(vals) & nzchar(vals)]
+    if (length(vals)) {
+      col_chars[col] <<- max(col_chars[col], max(nchar(vals)))
+    }
+  }
 
   for (q in q_order) {
     if (is.null(disag)) {
@@ -257,12 +343,14 @@ write_xlsx.svyflow_results <- function(x, file,
         openxlsx::writeData(wb, sheet, g, startRow = rptr, startCol = 1)
         openxlsx::addStyle(wb, sheet, styles$section, rows = rptr, cols = 1,
                            gridExpand = TRUE, stack = TRUE)
+        upd(g, 1)
         rptr <- rptr + 1L
       }
       prev_group <- if (is.na(g)) prev_group else g
     }
 
-    df       <- .question_block(disagg_rows, all_rows, q, overall_label)
+    df       <- .question_block(disagg_rows, all_rows, q, overall_label,
+                                 with_ci = with_ci, with_counts = with_counts)
     ncol_df  <- ncol(df)
     nrow_df  <- nrow(df)
     max_cols <- max(max_cols, ncol_df)
@@ -278,14 +366,24 @@ write_xlsx.svyflow_results <- function(x, file,
     openxlsx::addStyle(wb, sheet, styles$label, rows = body_rows, cols = 1,
                        gridExpand = TRUE, stack = TRUE)
 
+    # Track per-column max content length across header + body for autosize.
+    for (j in seq_len(ncol_df)) {
+      upd(c(names(df)[j], df[[j]]), j)
+    }
+
     rptr      <- rptr + nrow_df + 2L   # header + body + one blank spacer
     any_block <- TRUE
   }
 
   if (any_block) {
-    openxlsx::setColWidths(wb, sheet, cols = 1, widths = 24)
-    if (max_cols > 1) {
-      openxlsx::setColWidths(wb, sheet, cols = 2:max_cols, widths = 14)
+    # Row-label column sizes to its content (with sensible bounds).
+    label_width <- if (length(col_chars) >= 1L) {
+      min(max(col_chars[1] + 2L, 10L), 40L)
+    } else 12L
+    openxlsx::setColWidths(wb, sheet, cols = 1, widths = label_width)
+    if (max_cols > 1L) {
+      openxlsx::setColWidths(wb, sheet, cols = 2:max_cols,
+                             widths = col_width)
     }
   }
 }
