@@ -123,6 +123,35 @@ summarize_select_one(des, "rare_indicator", ci = ci_opts(prop_method = "logit"))
 `ci_opts()` knobs: `ci_level`, `df` (`NULL` = design df, `Inf` = normal),
 `prop_method` (proportions only), `interval_type` / `qrule` (quantiles only).
 
+## Design effect and effective sample size
+
+For methodology annexes you often want to report the **design effect**
+(DEFF) and the **effective sample size** (`n_eff`) alongside each
+estimate. Opt in with `deff = TRUE`:
+
+```r
+res <- analyze_survey(des, plan, deff = TRUE)
+head(res[, c("Question", "Response", "Result", "DEFF", "n_eff",
+             "Denominator")])
+#> Question Response  Result  DEFF  n_eff  Denominator
+#> gender   female    0.520   1.02  471    480
+#> hh_size  <NA>      6.10    2.34  205    480   <- cluster-correlated -> DEFF >> 1
+#> income   <NA>      1240    4.33  111    480
+```
+
+DEFF compares the variance under your design to a simple-random-sample of
+size `n`. Values are close to 1 for SRS-like designs, modestly above 1
+with unequal weights (Kish DEFF), and substantially above 1 for cluster
+designs on cluster-correlated outcomes. `n_eff = Denominator / DEFF`
+tells you the SRS-equivalent sample size.
+
+DEFF is populated for `select_one`, `select_multiple`, `mean`, and `sum`
+rows. Quantile, min and max rows carry `NA` because `survey::svyquantile()`
+does not compute a design effect and extrema bypass the survey design.
+Internally svyflow uses survey's `deff = "replace"` variant (size-`n`
+reference) rather than the package default (size-`sum(weights)` reference),
+which is what most published DEFFs report.
+
 ## Multi-select (Kobo / SurveyCTO)
 
 If your data has sibling binary columns (`var/opt` or `var___opt`), they are

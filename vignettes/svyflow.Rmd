@@ -202,7 +202,32 @@ In batch mode the method-specific knobs only affect the rows they apply to:
 `prop_method` changes `select_one` / `select_multiple` rows, `interval_type` /
 `qrule` change quantiles, and numeric rows are untouched.
 
-## Step 7 — export to Excel
+## Step 7 — design effect and effective sample size
+
+For methodology annexes, opt in to design-effect reporting with
+`deff = TRUE`. The result gains a `DEFF` column (design effect) and an
+`n_eff` column (effective sample size = `Denominator / DEFF`):
+
+```{r}
+res_deff <- analyze_survey(des, plan, deff = TRUE)
+head(res_deff[res_deff$Aggregation_method %in% c("perc", "mean"),
+              c("Question", "Response", "Result", "DEFF", "n_eff",
+                "Denominator")])
+```
+
+DEFF compares the variance under your survey design to a simple-random
+sample of the same size. Values around 1 indicate the design is as
+efficient as SRS; values above 1 mean unequal weighting or intra-cluster
+correlation is reducing precision. `n_eff` translates that back into an
+SRS-equivalent sample size — useful for caveating reports built on
+heavily clustered data.
+
+DEFF is populated for `select_one`, `select_multiple`, `mean`, and `sum`
+rows. Quantile, min and max rows carry `NA` because the underlying
+`survey::svyquantile()` does not compute a design effect and extrema
+bypass the survey design.
+
+## Step 8 — export to Excel
 
 `write_xlsx()` turns the result into a styled `.xlsx` workbook in one call.
 The workbook layout is fixed: an `Overall` sheet first, one sheet per

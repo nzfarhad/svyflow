@@ -11,7 +11,8 @@ analyze_survey(
   result_format = "proportion",
   digits = 1,
   use_labels = TRUE,
-  ci = ci_opts()
+  ci = ci_opts(),
+  deff = FALSE
 )
 }
 \arguments{
@@ -68,12 +69,27 @@ historical behaviour (95\% t-interval on the design df, plain Wald
 proportions). The method-specific knobs only affect the rows they
 apply to (\code{prop_method} -> \code{select_one} / \code{select_multiple},
 \code{interval_type} / \code{qrule} -> quantile rows); others are ignored.}
+
+\item{deff}{If \code{TRUE}, append \code{DEFF} (design effect) and \code{n_eff}
+(effective sample size = \code{Denominator / DEFF}) columns to the
+result. Computed for proportion (\code{select_one}, \code{select_multiple})
+and numeric mean/sum rows; \code{NA} for quantile, min and max rows
+because \code{survey::svyquantile()} does not produce a design effect
+and the extrema bypass the design entirely. svyflow uses the
+\code{deff = "replace"} variant of \code{survey::svymean()} / \code{svytotal()},
+which compares variance to an SRS of size \code{n}. This matches the
+textbook DEFF (~1 for an SRS) and is more interpretable than the
+default \code{deff = TRUE} variant, which uses \code{sum(weights)} as the
+reference and produces large, hard-to-read values for any
+non-trivial weighting. Default \code{FALSE} keeps the public schema
+unchanged.}
 }
 \value{
 A \code{\link{svyflow_results}} tibble with columns:
 \code{Disaggregation}, \code{Disaggregation_level}, \code{Question}, \code{Response},
 \code{Aggregation_method}, \code{Result}, \code{SE}, \code{CI_low}, \code{CI_high}, \code{Count},
-\code{Denominator}, \code{repeat_for}.
+\code{Denominator}, \code{repeat_for} (plus \code{DEFF} and \code{n_eff} when
+\code{deff = TRUE}).
 }
 \description{
 The public entry point. Validates the plan, resolves multi-select option

@@ -37,10 +37,20 @@
 #'   knobs relevant to a given aggregator are read (`prop_method` by the
 #'   proportion aggregators, `interval_type` / `qrule` by the quantile
 #'   one); the rest accept it for signature uniformity.
+#' @param deff If `TRUE`, append a `DEFF` column with the design effect.
+#'   Only meaningful for proportion (`single_select_svy`,
+#'   `multi_select_svy`) and numeric mean/sum aggregators; quantile,
+#'   min, and max rows return `NA` because `survey::svyquantile()` does
+#'   not compute a design effect and the extrema bypass the design.
+#'   svyflow passes `deff = "replace"` to the underlying
+#'   `survey::svymean()` / `svytotal()`, giving the textbook DEFF
+#'   (~1 for SRS) rather than the default `deff = TRUE` variant that
+#'   uses `sum(weights)` as the SRS reference. Default `FALSE` keeps
+#'   the output schema unchanged.
 #'
 #' @return A tibble with columns `Var1, Freq, SE, CI_low, CI_high,
 #'   aggregation_method, variable, count, valid, disaggregation,
-#'   disagg_level`.
+#'   disagg_level` (plus `DEFF` when `deff = TRUE`).
 #'
 #' @name aggregators
 #' @keywords internal
@@ -50,27 +60,34 @@ NULL
 #' @keywords internal
 single_select_svy <- function(design, ques, disag, level, ms_options = NULL,
                               result_format = "proportion", digits = 1,
-                              ci = ci_opts()) {
+                              ci = ci_opts(), deff = FALSE) {
   .validate_format_args(result_format, digits)
   ci <- .as_ci_opts(ci)
+  # Use survey's "replace" variant: compares variance to an SRS of size n
+  # (the textbook DEFF) rather than the default which uses sum(weights) and
+  # produces large, hard-to-interpret values for any non-trivial weighting.
+  deff_arg <- if (isTRUE(deff)) "replace" else FALSE
   vals <- .svy_data(design)[[ques]]
   valid_n <- sum(!is.na(vals))
-  if (valid_n == 0) return(.empty_row(ques, "perc", disag, level, result_format))
+  if (valid_n == 0) return(.empty_row(ques, "perc", disag, level,
+                                      result_format, deff))
 
   d <- srvyr::filter(design, !is.na(.data[[ques]]))
   res <- dplyr::summarise(
     srvyr::group_by(d, !!rlang::sym(ques)),
     prop = if (is.null(ci$prop_method))
              srvyr::survey_mean(vartype = c("se", "ci"),
-                                level = ci$ci_level, df = ci$df)
+                                level = ci$ci_level, df = ci$df,
+                                deff = deff_arg)
            else
              srvyr::survey_mean(vartype = c("se", "ci"),
                                 level = ci$ci_level, df = ci$df,
-                                proportion = TRUE, prop_method = ci$prop_method),
+                                proportion = TRUE, prop_method = ci$prop_method,
+                                deff = deff_arg),
     cnt  = srvyr::unweighted(dplyr::n())
   )
 
-  tibble::tibble(
+  out <- tibble::tibble(
     Var1    = as.character(res[[ques]]),
     Freq    = .format_prop(res$prop,     result_format, digits),
     SE      = .format_prop(res$prop_se,  result_format, digits),
@@ -83,15 +100,21 @@ single_select_svy <- function(design, ques, disag, level, ms_options = NULL,
     disaggregation = as.character(disag),
     disagg_level   = as.character(level)
   )
+  if (deff) {
+    out$DEFF <- if ("prop_deff" %in% names(res))
+                  as.numeric(res$prop_deff) else NA_real_
+  }
+  out
 }
 
 #' @rdname aggregators
 #' @keywords internal
 multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
                              result_format = "proportion", digits = 1,
-                             ci = ci_opts()) {
+                             ci = ci_opts(), deff = FALSE) {
   .validate_format_args(result_format, digits)
   ci <- .as_ci_opts(ci)
+  deff_arg <- if (isTRUE(deff)) "replace" else FALSE
   if (is.null(ms_options) || is.null(ms_options[[ques]])) {
     ms_options <- list()
     ms_options[[ques]] <- detect_ms_options(.svy_data(design), ques)[[ques]]
@@ -100,7 +123,7 @@ multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
   if (length(opts) == 0) {
     warning("multi_select_svy: no expanded binary columns found for '", ques,
             "'. Run expand_multiselect() first.")
-    return(.empty_row(ques, "perc", disag, level, result_format))
+    return(.empty_row(ques, "perc", disag, level, result_format, deff))
   }
 
   na_val <- if (result_format == "percent_fmt") NA_character_ else NA_real_
@@ -109,12 +132,14 @@ multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
     vals <- .svy_data(design)[[opt]]
     valid_n <- sum(!is.na(vals))
     if (valid_n == 0) {
-      return(tibble::tibble(
+      empty <- tibble::tibble(
         Var1 = .option_label(ques, opt),
         Freq = na_val,
         SE = na_val, CI_low = na_val, CI_high = na_val,
         count = 0L, valid = 0L
-      ))
+      )
+      if (deff) empty$DEFF <- NA_real_
+      return(empty)
     }
     d <- srvyr::filter(design, !is.na(.data[[opt]]))
     r <- dplyr::summarise(
@@ -122,16 +147,18 @@ multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
       prop = if (is.null(ci$prop_method))
                srvyr::survey_mean(as.numeric(.data[[opt]]),
                                   vartype = c("se", "ci"), na.rm = TRUE,
-                                  level = ci$ci_level, df = ci$df)
+                                  level = ci$ci_level, df = ci$df,
+                                  deff = deff_arg)
              else
                srvyr::survey_mean(as.numeric(.data[[opt]]),
                                   vartype = c("se", "ci"), na.rm = TRUE,
                                   level = ci$ci_level, df = ci$df,
                                   proportion = TRUE,
-                                  prop_method = ci$prop_method),
+                                  prop_method = ci$prop_method,
+                                  deff = deff_arg),
       cnt  = srvyr::unweighted(sum(.data[[opt]] == 1, na.rm = TRUE))
     )
-    tibble::tibble(
+    one <- tibble::tibble(
       Var1    = .option_label(ques, opt),
       Freq    = .format_prop(r$prop,     result_format, digits),
       SE      = .format_prop(r$prop_se,  result_format, digits),
@@ -140,27 +167,36 @@ multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
       count   = r$cnt,
       valid   = valid_n
     )
+    if (deff) {
+      one$DEFF <- if ("prop_deff" %in% names(r))
+                    as.numeric(r$prop_deff) else NA_real_
+    }
+    one
   })
 
   rows$aggregation_method <- "perc"
   rows$variable           <- ques
   rows$disaggregation     <- as.character(disag)
   rows$disagg_level       <- as.character(level)
-  rows[, .AGG_COLS, drop = FALSE]
+  cols <- if (deff) c(.AGG_COLS, "DEFF") else .AGG_COLS
+  rows[, cols, drop = FALSE]
 }
 
 # Shared body for survey_mean / survey_total. The caller supplies the actual
 # srvyr summariser; this helper handles validity-checking and tibble assembly.
+# When deff = TRUE the summariser is expected to produce a `val_deff` column;
+# missing/NULL falls back to NA so the column shape stays uniform.
 .summary_stat <- function(design, ques, disag, level, method, summariser,
-                          result_format, digits) {
+                          result_format, digits, deff = FALSE) {
   vals <- .svy_data(design)[[ques]]
   valid_n <- sum(!is.na(suppressWarnings(as.numeric(vals))))
-  if (valid_n == 0) return(.empty_row(ques, method, disag, level, result_format))
+  if (valid_n == 0) return(.empty_row(ques, method, disag, level,
+                                      result_format, deff))
 
   d <- srvyr::filter(design, !is.na(.data[[ques]]))
   res <- summariser(d, ques)
 
-  tibble::tibble(
+  out <- tibble::tibble(
     Var1 = NA_character_,
     Freq    = .coerce_freq_if_fmt(as.numeric(res$val),     result_format, digits),
     SE      = .coerce_freq_if_fmt(as.numeric(res$val_se),  result_format, digits),
@@ -172,38 +208,47 @@ multi_select_svy <- function(design, ques, disag, level, ms_options = NULL,
     disaggregation = as.character(disag),
     disagg_level   = as.character(level)
   )
+  if (deff) {
+    out$DEFF <- if ("val_deff" %in% names(res))
+                  as.numeric(res$val_deff) else NA_real_
+  }
+  out
 }
 
 #' @rdname aggregators
 #' @keywords internal
 stat_mean_svy <- function(design, ques, disag, level, ms_options = NULL,
                           result_format = "proportion", digits = 1,
-                          ci = ci_opts()) {
+                          ci = ci_opts(), deff = FALSE) {
   .validate_format_args(result_format, digits)
   ci <- .as_ci_opts(ci)
+  deff_arg <- if (isTRUE(deff)) "replace" else FALSE
   .summary_stat(design, ques, disag, level, "mean", function(d, q) {
     dplyr::summarise(d,
       val = srvyr::survey_mean(as.numeric(.data[[q]]),
                                vartype = c("se", "ci"), na.rm = TRUE,
-                               level = ci$ci_level, df = ci$df)
+                               level = ci$ci_level, df = ci$df,
+                               deff = deff_arg)
     )
-  }, result_format, digits)
+  }, result_format, digits, deff)
 }
 
 #' @rdname aggregators
 #' @keywords internal
 stat_sum_svy <- function(design, ques, disag, level, ms_options = NULL,
                          result_format = "proportion", digits = 1,
-                         ci = ci_opts()) {
+                         ci = ci_opts(), deff = FALSE) {
   .validate_format_args(result_format, digits)
   ci <- .as_ci_opts(ci)
+  deff_arg <- if (isTRUE(deff)) "replace" else FALSE
   .summary_stat(design, ques, disag, level, "sum", function(d, q) {
     dplyr::summarise(d,
       val = srvyr::survey_total(as.numeric(.data[[q]]),
                                 vartype = c("se", "ci"), na.rm = TRUE,
-                                level = ci$ci_level, df = ci$df)
+                                level = ci$ci_level, df = ci$df,
+                                deff = deff_arg)
     )
-  }, result_format, digits)
+  }, result_format, digits, deff)
 }
 
 #' @rdname aggregators
@@ -214,12 +259,13 @@ stat_sum_svy <- function(design, ques, disag, level, ms_options = NULL,
 stat_quantile_svy <- function(design, ques, disag, level, q, method,
                               ms_options = NULL,
                               result_format = "proportion", digits = 1,
-                              ci = ci_opts()) {
+                              ci = ci_opts(), deff = FALSE) {
   .validate_format_args(result_format, digits)
   ci <- .as_ci_opts(ci)
   vals <- .svy_data(design)[[ques]]
   valid_n <- sum(!is.na(suppressWarnings(as.numeric(vals))))
-  if (valid_n == 0) return(.empty_row(ques, method, disag, level, result_format))
+  if (valid_n == 0) return(.empty_row(ques, method, disag, level,
+                                      result_format, deff))
 
   d <- srvyr::filter(design, !is.na(.data[[ques]]))
   res <- dplyr::summarise(
@@ -235,7 +281,7 @@ stat_quantile_svy <- function(design, ques, disag, level, q, method,
   )
   qstem <- grep("^val_q\\d+$", names(res), value = TRUE)[1]
 
-  tibble::tibble(
+  out <- tibble::tibble(
     Var1 = NA_character_,
     Freq    = .coerce_freq_if_fmt(as.numeric(res[[qstem]]),
                                   result_format, digits),
@@ -251,19 +297,23 @@ stat_quantile_svy <- function(design, ques, disag, level, q, method,
     disaggregation = as.character(disag),
     disagg_level   = as.character(level)
   )
+  # survey::svyquantile() does not return a design effect; emit NA for
+  # uniform column shape when deff = TRUE.
+  if (deff) out$DEFF <- NA_real_
+  out
 }
 
 #' @rdname aggregators
 #' @keywords internal
 stat_min_unweighted <- function(design, ques, disag, level, ms_options = NULL,
                                 result_format = "proportion", digits = 1,
-                                ci = ci_opts()) {
+                                ci = ci_opts(), deff = FALSE) {
   .validate_format_args(result_format, digits)
   vals <- suppressWarnings(as.numeric(.svy_data(design)[[ques]]))
   valid_n <- sum(!is.na(vals))
   if (valid_n == 0) return(.empty_row(ques, "min_unweighted", disag, level,
-                                      result_format))
-  tibble::tibble(
+                                      result_format, deff))
+  out <- tibble::tibble(
     Var1 = NA_character_,
     Freq = .coerce_freq_if_fmt(min(vals, na.rm = TRUE), result_format, digits),
     SE = if (result_format == "percent_fmt") NA_character_ else NA_real_,
@@ -275,19 +325,21 @@ stat_min_unweighted <- function(design, ques, disag, level, ms_options = NULL,
     disaggregation = as.character(disag),
     disagg_level   = as.character(level)
   )
+  if (deff) out$DEFF <- NA_real_
+  out
 }
 
 #' @rdname aggregators
 #' @keywords internal
 stat_max_unweighted <- function(design, ques, disag, level, ms_options = NULL,
                                 result_format = "proportion", digits = 1,
-                                ci = ci_opts()) {
+                                ci = ci_opts(), deff = FALSE) {
   .validate_format_args(result_format, digits)
   vals <- suppressWarnings(as.numeric(.svy_data(design)[[ques]]))
   valid_n <- sum(!is.na(vals))
   if (valid_n == 0) return(.empty_row(ques, "max_unweighted", disag, level,
-                                      result_format))
-  tibble::tibble(
+                                      result_format, deff))
+  out <- tibble::tibble(
     Var1 = NA_character_,
     Freq = .coerce_freq_if_fmt(max(vals, na.rm = TRUE), result_format, digits),
     SE = if (result_format == "percent_fmt") NA_character_ else NA_real_,
@@ -299,4 +351,6 @@ stat_max_unweighted <- function(design, ques, disag, level, ms_options = NULL,
     disaggregation = as.character(disag),
     disagg_level   = as.character(level)
   )
+  if (deff) out$DEFF <- NA_real_
+  out
 }

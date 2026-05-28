@@ -1,3 +1,22 @@
+# svyflow 0.3.0
+
+## New features
+
+* `analyze_survey()` and the proportion / mean / sum aggregators gain an
+  optional `deff = FALSE` argument. When `TRUE`, the result carries two
+  extra columns: `DEFF` (the design effect) and `n_eff` (the effective
+  sample size, `Denominator / DEFF`). Quantile, min and max rows return
+  `NA` for both because `survey::svyquantile()` does not produce a
+  design effect and the extrema bypass the design entirely.
+* DEFF is computed via `survey::svymean()` / `svytotal()`'s
+  `deff = "replace"` variant, which compares variance to an SRS of size
+  `n`. This matches the textbook DEFF (~1 for SRS) and is far more
+  interpretable than the default `deff = TRUE` variant, which uses
+  `sum(weights)` as the SRS reference and produces large values for any
+  non-trivial weighting.
+* The default output schema is unchanged when `deff = FALSE`; the two
+  new columns are only present when explicitly requested.
+
 # svyflow 0.2.0
 
 ## New features

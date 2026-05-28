@@ -53,11 +53,25 @@
 #'   proportions). The method-specific knobs only affect the rows they
 #'   apply to (`prop_method` -> `select_one` / `select_multiple`,
 #'   `interval_type` / `qrule` -> quantile rows); others are ignored.
+#' @param deff If `TRUE`, append `DEFF` (design effect) and `n_eff`
+#'   (effective sample size = `Denominator / DEFF`) columns to the
+#'   result. Computed for proportion (`select_one`, `select_multiple`)
+#'   and numeric mean/sum rows; `NA` for quantile, min and max rows
+#'   because `survey::svyquantile()` does not produce a design effect
+#'   and the extrema bypass the design entirely. svyflow uses the
+#'   `deff = "replace"` variant of `survey::svymean()` / `svytotal()`,
+#'   which compares variance to an SRS of size `n`. This matches the
+#'   textbook DEFF (~1 for an SRS) and is more interpretable than the
+#'   default `deff = TRUE` variant, which uses `sum(weights)` as the
+#'   reference and produces large, hard-to-read values for any
+#'   non-trivial weighting. Default `FALSE` keeps the public schema
+#'   unchanged.
 #'
 #' @return A [`svyflow_results`] tibble with columns:
 #'   `Disaggregation`, `Disaggregation_level`, `Question`, `Response`,
 #'   `Aggregation_method`, `Result`, `SE`, `CI_low`, `CI_high`, `Count`,
-#'   `Denominator`, `repeat_for`.
+#'   `Denominator`, `repeat_for` (plus `DEFF` and `n_eff` when
+#'   `deff = TRUE`).
 #'
 #' @examples
 #' df <- data.frame(
@@ -80,9 +94,13 @@ analyze_survey <- function(design,
                            result_format = "proportion",
                            digits = 1,
                            use_labels = TRUE,
-                           ci = ci_opts()) {
+                           ci = ci_opts(),
+                           deff = FALSE) {
   .validate_format_args(result_format, digits)
   ci <- .as_ci_opts(ci)
+  if (!is.logical(deff) || length(deff) != 1 || is.na(deff)) {
+    stop("`deff` must be a single TRUE or FALSE.")
+  }
   df <- .svy_data(design)
   validate_plan(analysis_plan, df)
 
@@ -108,7 +126,8 @@ analyze_survey <- function(design,
   result_no_rf <- NULL
   if (!is.null(ap_no_rf) && nrow(ap_no_rf) > 0) {
     result_no_rf <- run_plan_internal(design, ap_no_rf, ms_options,
-                                      result_format, digits, use_labels, ci)
+                                      result_format, digits, use_labels, ci,
+                                      deff)
     if (!is.null(result_no_rf)) result_no_rf$repeat_for <- NA_character_
   }
 
@@ -124,7 +143,8 @@ analyze_survey <- function(design,
           srvyr::filter(design, .data[[rf_col]] == lvl)
         }
         res <- run_plan_internal(d_sub, grp, ms_options,
-                                 result_format, digits, use_labels, ci)
+                                 result_format, digits, use_labels, ci,
+                                 deff)
         if (!is.null(res)) res$repeat_for <- as.character(lvl)
         res
       })
@@ -139,6 +159,9 @@ analyze_survey <- function(design,
   # Preserve the optional group/section label across the schema rename
   # (it is not part of .OUT_RENAME, which would otherwise drop it).
   group_col <- if (".group" %in% names(out)) out$.group else NULL
+  # Same trick for the optional design-effect column from the aggregators
+  # (only present when deff = TRUE).
+  deff_col  <- if ("DEFF"   %in% names(out)) out$DEFF   else NULL
 
   # Reorder and rename to the public schema. No NSE here so R CMD check is
   # happy; .OUT_RENAME maps internal -> public column names.
@@ -149,6 +172,18 @@ analyze_survey <- function(design,
   # so the default output schema is unchanged.
   if (!is.null(group_col)) out$Group <- group_col
 
+  # Re-attach DEFF and compute the effective sample size from the public
+  # Denominator column. n_eff is NA wherever DEFF is NA (quantile / min /
+  # max rows) or the denominator is zero.
+  if (!is.null(deff_col)) {
+    out$DEFF  <- deff_col
+    denom     <- suppressWarnings(as.numeric(out$Denominator))
+    out$n_eff <- ifelse(is.na(deff_col) | !is.finite(deff_col) |
+                          deff_col <= 0 | is.na(denom) | denom <= 0,
+                        NA_real_,
+                        denom / deff_col)
+  }
+
   new_svyflow_results(out, result_format = result_format, digits = digits)
 }
 
@@ -156,7 +191,8 @@ analyze_survey <- function(design,
 # entry point analyze_survey() handles repeat_for above this layer.
 run_plan_internal <- function(design, plan, ms_options,
                               result_format = "proportion", digits = 1,
-                              use_labels = TRUE, ci = ci_opts()) {
+                              use_labels = TRUE, ci = ci_opts(),
+                              deff = FALSE) {
   n <- nrow(plan)
   if (n == 0) return(NULL)
 
@@ -176,7 +212,7 @@ run_plan_internal <- function(design, plan, ms_options,
     if (is.na(disag) || disag == "all") {
       lab <- if (is.na(disag)) NA_character_ else "all"
       rows_i <- fn(design, ques, lab, lab, ms_options,
-                   result_format, digits, ci)
+                   result_format, digits, ci, deff)
     } else {
       lvls <- unique(.svy_data(design)[[disag]])
       rows_i <- purrr::map_dfr(lvls, function(lvl) {
@@ -185,7 +221,8 @@ run_plan_internal <- function(design, plan, ms_options,
         } else {
           srvyr::filter(design, .data[[disag]] == lvl)
         }
-        fn(d_sub, ques, disag, lvl, ms_options, result_format, digits, ci)
+        fn(d_sub, ques, disag, lvl, ms_options, result_format, digits, ci,
+           deff)
       })
     }
 

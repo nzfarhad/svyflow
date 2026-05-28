@@ -19,7 +19,8 @@ single_select_svy(
   ms_options = NULL,
   result_format = "proportion",
   digits = 1,
-  ci = ci_opts()
+  ci = ci_opts(),
+  deff = FALSE
 )
 
 multi_select_svy(
@@ -30,7 +31,8 @@ multi_select_svy(
   ms_options = NULL,
   result_format = "proportion",
   digits = 1,
-  ci = ci_opts()
+  ci = ci_opts(),
+  deff = FALSE
 )
 
 stat_mean_svy(
@@ -41,7 +43,8 @@ stat_mean_svy(
   ms_options = NULL,
   result_format = "proportion",
   digits = 1,
-  ci = ci_opts()
+  ci = ci_opts(),
+  deff = FALSE
 )
 
 stat_sum_svy(
@@ -52,7 +55,8 @@ stat_sum_svy(
   ms_options = NULL,
   result_format = "proportion",
   digits = 1,
-  ci = ci_opts()
+  ci = ci_opts(),
+  deff = FALSE
 )
 
 stat_quantile_svy(
@@ -65,7 +69,8 @@ stat_quantile_svy(
   ms_options = NULL,
   result_format = "proportion",
   digits = 1,
-  ci = ci_opts()
+  ci = ci_opts(),
+  deff = FALSE
 )
 
 stat_min_unweighted(
@@ -76,7 +81,8 @@ stat_min_unweighted(
   ms_options = NULL,
   result_format = "proportion",
   digits = 1,
-  ci = ci_opts()
+  ci = ci_opts(),
+  deff = FALSE
 )
 
 stat_max_unweighted(
@@ -87,7 +93,8 @@ stat_max_unweighted(
   ms_options = NULL,
   result_format = "proportion",
   digits = 1,
-  ci = ci_opts()
+  ci = ci_opts(),
+  deff = FALSE
 )
 }
 \arguments{
@@ -125,13 +132,24 @@ knobs relevant to a given aggregator are read (\code{prop_method} by the
 proportion aggregators, \code{interval_type} / \code{qrule} by the quantile
 one); the rest accept it for signature uniformity.}
 
+\item{deff}{If \code{TRUE}, append a \code{DEFF} column with the design effect.
+Only meaningful for proportion (\code{single_select_svy},
+\code{multi_select_svy}) and numeric mean/sum aggregators; quantile,
+min, and max rows return \code{NA} because \code{survey::svyquantile()} does
+not compute a design effect and the extrema bypass the design.
+svyflow passes \code{deff = "replace"} to the underlying
+\code{survey::svymean()} / \code{svytotal()}, giving the textbook DEFF
+(~1 for SRS) rather than the default \code{deff = TRUE} variant that
+uses \code{sum(weights)} as the SRS reference. Default \code{FALSE} keeps
+the output schema unchanged.}
+
 \item{q}{Numeric, single quantile in \verb{[0, 1]}.}
 
 \item{method}{Aggregation label written into \code{aggregation_method}
 (e.g. \code{"median"}, \code{"1st_Qu"}).}
 }
 \value{
-A tibble with columns \verb{Var1, Freq, SE, CI_low, CI_high, aggregation_method, variable, count, valid, disaggregation, disagg_level}.
+A tibble with columns \verb{Var1, Freq, SE, CI_low, CI_high, aggregation_method, variable, count, valid, disaggregation, disagg_level} (plus \code{DEFF} when \code{deff = TRUE}).
 }
 \description{
 These functions compute one row (or a few rows for multi-response /

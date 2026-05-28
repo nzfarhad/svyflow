@@ -102,10 +102,12 @@
 # An "empty" aggregator row used when a variable is entirely NA. Same shape
 # as a real aggregator return so it can be rbind-stacked safely. In
 # "percent_fmt" mode the numeric columns are character NA so types line up
-# with the formatted rows.
-.empty_row <- function(ques, method, disag, level, result_format = "proportion") {
+# with the formatted rows. When deff = TRUE the row gains a DEFF column
+# (NA), matching the shape produced by aggregators with deff enabled.
+.empty_row <- function(ques, method, disag, level, result_format = "proportion",
+                       deff = FALSE) {
   na_val <- if (result_format == "percent_fmt") NA_character_ else NA_real_
-  tibble::tibble(
+  out <- tibble::tibble(
     Var1   = NA_character_,
     Freq   = na_val,
     SE     = na_val,
@@ -118,6 +120,8 @@
     disaggregation     = as.character(disag),
     disagg_level       = as.character(level)
   )
+  if (deff) out$DEFF <- NA_real_
+  out
 }
 
 # Pull the underlying data frame out of a srvyr / survey design.

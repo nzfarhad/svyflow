@@ -1,7 +1,7 @@
 # Map (kobo_type, aggregation_method) to the aggregator function that handles
 # it. All aggregators share the signature
-# `function(design, ques, disag, level, ms_options, result_format, digits, ci)`
-# for dispatcher uniformity.
+# `function(design, ques, disag, level, ms_options, result_format, digits,
+#           ci, deff)` for dispatcher uniformity.
 #
 # Extending: to add a new integer aggregation, add a branch here AND extend
 # .INT_METHODS in utils.R so validate_plan() accepts it.
@@ -13,12 +13,15 @@ pick_aggregator <- function(kobo_type, aggregation_method) {
       aggregation_method,
       mean   = stat_mean_svy,
       sum    = stat_sum_svy,
-      median = function(d, q, dg, lv, ms, rf = "proportion", dg2 = 1, ci = ci_opts())
-        stat_quantile_svy(d, q, dg, lv, 0.50, "median", ms, rf, dg2, ci),
-      firstq = function(d, q, dg, lv, ms, rf = "proportion", dg2 = 1, ci = ci_opts())
-        stat_quantile_svy(d, q, dg, lv, 0.25, "1st_Qu", ms, rf, dg2, ci),
-      thirdq = function(d, q, dg, lv, ms, rf = "proportion", dg2 = 1, ci = ci_opts())
-        stat_quantile_svy(d, q, dg, lv, 0.75, "3rd_Qu", ms, rf, dg2, ci),
+      median = function(d, q, dg, lv, ms, rf = "proportion", dg2 = 1,
+                        ci = ci_opts(), deff = FALSE)
+        stat_quantile_svy(d, q, dg, lv, 0.50, "median", ms, rf, dg2, ci, deff),
+      firstq = function(d, q, dg, lv, ms, rf = "proportion", dg2 = 1,
+                        ci = ci_opts(), deff = FALSE)
+        stat_quantile_svy(d, q, dg, lv, 0.25, "1st_Qu", ms, rf, dg2, ci, deff),
+      thirdq = function(d, q, dg, lv, ms, rf = "proportion", dg2 = 1,
+                        ci = ci_opts(), deff = FALSE)
+        stat_quantile_svy(d, q, dg, lv, 0.75, "3rd_Qu", ms, rf, dg2, ci, deff),
       min    = stat_min_unweighted,
       max    = stat_max_unweighted,
       stop("unknown aggregation_method '", aggregation_method,
