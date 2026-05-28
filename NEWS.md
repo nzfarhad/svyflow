@@ -1,4 +1,4 @@
-# svyflow (development version)
+# svyflow 0.2.0
 
 ## New features
 

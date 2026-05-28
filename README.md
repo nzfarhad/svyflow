@@ -135,11 +135,50 @@ summarize_select_multiple(make_design(df), "hh_needs",
                           variable_label = "Household needs")
 ```
 
-## Labels
+## Labels and section groups
 
 Add optional `variable_label` / `disaggregation_label` columns to a plan (or
 pass them to the wrappers) and the output substitutes friendly names. In batch
 mode this is controlled by `use_labels = TRUE` (the default).
+
+A further optional plan column, `group`, lets you tag each question with a
+section name (e.g. `"Demographics"`, `"Household economy"`). It is carried
+through to a `Group` column in the result and used by `write_xlsx()` as a
+section separator between crosstab blocks.
+
+## Excel export
+
+`write_xlsx()` turns an `analyze_survey()` result into a styled `.xlsx`
+workbook ready to share — no manual copy-paste:
+
+```r
+res <- analyze_survey(des, plan)
+write_xlsx(res, "report.xlsx")
+```
+
+Layout:
+- **`Overall`** sheet first (un-disaggregated crosstabs).
+- One sheet per disaggregation variable (e.g. `gender`), with per-question
+  crosstab blocks — disaggregation levels as rows, an `Overall` summary row
+  last, `group` values as section headers between blocks.
+- **`Long`** sheet last — the full long-form output as a flat table (every
+  column, including `repeat_for` rows).
+
+Display options on `write_xlsx()`:
+
+| Argument | What it does |
+|---|---|
+| `with_ci = TRUE` | Composes each value cell as `"<est> (<lo> - <hi>)"` from the input verbatim — no re-scaling/re-rounding. |
+| `with_counts = "row_label"` | Appends ` (n=Denominator)` to every row label (level totals). |
+| `with_counts = "inline"` | Same as `"row_label"` plus ` (n=Count)` on each cell; with `with_ci` it nests as `"<est> (<lo> - <hi>; n=N)"`. |
+| `with_counts = "parallel"` | Same as `"row_label"` plus a sibling `"(n)"` column after every value column. |
+| `col_width = 21` | Fixed Excel width for value columns (~196 px); headers wrap within it. |
+| `theme = xlsx_theme(...)` | Override fonts, header fill, body colour, borders, section styling. |
+| `long_sheet = FALSE`, `overall_sheet = FALSE` | Drop the corresponding sheet. |
+
+Values are written **exactly as they appear in the result** — so set the
+format / precision upstream with `format_results()` (e.g.
+`format_results(res, to = "percent_fmt", digits = 1)`).
 
 ## Learn more
 

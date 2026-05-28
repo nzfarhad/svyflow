@@ -46,9 +46,9 @@ xlsx_theme <- function(font_name          = "Calibri",
                        body_font_color    = "#333333",
                        body_font_size     = 10,
                        border_color       = "#666666",
-                       section_fill       = "#EEECE1",
+                       section_fill       = "#FFFFFF",
                        section_font_color = "#7D0E00",
-                       section_font_size  = 12,
+                       section_font_size  = 18,
                        section_bold       = TRUE,
                        label_bold         = FALSE) {
   chk_hex <- function(x, nm) {

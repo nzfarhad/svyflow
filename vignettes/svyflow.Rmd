@@ -202,10 +202,72 @@ In batch mode the method-specific knobs only affect the rows they apply to:
 `prop_method` changes `select_one` / `select_multiple` rows, `interval_type` /
 `qrule` change quantiles, and numeric rows are untouched.
 
+## Step 7 — export to Excel
+
+`write_xlsx()` turns the result into a styled `.xlsx` workbook in one call.
+The workbook layout is fixed: an `Overall` sheet first, one sheet per
+disaggregation variable next, and a `Long` sheet at the end holding the
+full long-form output as a flat table.
+
+Add a `group` column to your plan to render section separators between
+question blocks within each sheet:
+
+```{r}
+plan_grouped <- tibble::tribble(
+  ~variable,  ~kobo_type,        ~aggregation_method, ~disaggregation, ~group,         ~variable_label,
+  "gender",   "select_one",      NA,                  "all",           "Demographics", "Gender",
+  "edu_lvl",  "select_one",      NA,                  "gender",        "Demographics", "Education level",
+  "hh_size",  "integer",         "mean",              "gender",        "Household",    "Household size",
+  "hh_needs", "select_multiple", NA,                  "gender",        "Needs",        "Household needs"
+)
+res_grouped <- analyze_survey(des, plan_grouped)
+
+f <- tempfile(fileext = ".xlsx")
+write_xlsx(res_grouped, f)
+```
+
+Display options on `write_xlsx()`:
+
+```{r, eval = FALSE}
+# Confidence intervals composed into each value cell.
+write_xlsx(res_grouped, "with_ci.xlsx", with_ci = TRUE)
+
+# Unweighted counts on the row labels (level totals).
+write_xlsx(res_grouped, "with_counts.xlsx", with_counts = "row_label")
+
+# Inline per-cell counts; combines with with_ci.
+write_xlsx(res_grouped, "inline.xlsx",
+           with_ci = TRUE, with_counts = "inline")
+
+# A sibling "(n)" column after every value column.
+write_xlsx(res_grouped, "parallel.xlsx", with_counts = "parallel")
+```
+
+Because the exporter writes values verbatim, control the display
+format upstream with `format_results()`:
+
+```{r, eval = FALSE}
+res_pct <- format_results(res_grouped, to = "percent_fmt", digits = 1)
+write_xlsx(res_pct, "report.xlsx", with_ci = TRUE)
+```
+
+Restyle with `xlsx_theme()` — override any field (font, header fill,
+borders, section styling):
+
+```{r, eval = FALSE}
+write_xlsx(res_grouped, "navy.xlsx",
+           theme = xlsx_theme(font_name = "Arial",
+                              header_fill = "#1E3A5F"))
+```
+
+Value-column width is fixed (`col_width = 21` by default); long headers
+wrap within that width. The row-label column sizes itself to content.
+
 ## Where to go next
 
 - `?analyze_survey` — the batch entry point and its full plan schema.
 - `?summarize_select_one`, `?summarize_mean`, … — the single-indicator family.
 - `?ci_opts` — confidence-interval options.
 - `?format_results` — post-run reformatting.
+- `?write_xlsx`, `?xlsx_theme` — Excel export and theming.
 - `?make_design`, `?expand_multiselect` — design construction and multi-select.
