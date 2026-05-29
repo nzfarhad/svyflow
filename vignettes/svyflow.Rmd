@@ -288,6 +288,33 @@ write_xlsx(res_grouped, "navy.xlsx",
 Value-column width is fixed (`col_width = 21` by default); long headers
 wrap within that width. The row-label column sizes itself to content.
 
+## Step 9 — methods / reproducibility sheet
+
+`write_methods_xlsx()` is a **standalone companion** to `write_xlsx()`:
+it writes a single-sheet workbook documenting how the analysis was
+produced — session info, the design, sample sizes, weights, CI options,
+and (when supplied) a plan summary and a DEFF roll-up. Ship it alongside
+the results workbook so a recipient can interpret and reproduce them.
+
+```{r, eval = FALSE}
+write_methods_xlsx(
+  "methods.xlsx",
+  design  = des,
+  plan    = plan,
+  results = res_grouped,
+  ci      = ci_opts(),
+  cover_notes = c(Project = "2026 baseline",
+                  Funder  = "Donor agency",
+                  "Estimates use design-correct standard errors.")
+)
+```
+
+The function never touches `analyze_survey()` or `write_xlsx()`. The
+`plan`, `results` and `cover_notes` arguments are all optional — supply
+only what you have. When `results` carries a `DEFF` column, a roll-up
+section (mean / median / max DEFF, mean `n_eff`, top 5 highest DEFFs) is
+added automatically.
+
 ## Where to go next
 
 - `?analyze_survey` — the batch entry point and its full plan schema.

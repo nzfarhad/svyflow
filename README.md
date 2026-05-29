@@ -209,6 +209,45 @@ Values are written **exactly as they appear in the result** — so set the
 format / precision upstream with `format_results()` (e.g.
 `format_results(res, to = "percent_fmt", digits = 1)`).
 
+## Methods / reproducibility sheet
+
+`write_methods_xlsx()` is a **standalone companion** to `write_xlsx()`:
+it writes a single-sheet `.xlsx` documenting how an analysis was
+produced — session info, the survey design, sample sizes, weights
+summary, CI options, plan summary, and (when available) a DEFF roll-up.
+Useful as a methodology annex shipped alongside the main workbook.
+
+```r
+res <- analyze_survey(des, plan, ci = ci_opts(prop_method = "logit"),
+                      deff = TRUE)
+write_xlsx(res, "report.xlsx")
+write_methods_xlsx(
+  "methods.xlsx",
+  design  = des,
+  plan    = plan,
+  results = res,
+  ci      = ci_opts(prop_method = "logit"),
+  cover_notes = c(Project = "Baseline survey 2026",
+                  Funder  = "Donor agency",
+                  Contact = "your.name@example.org")
+)
+```
+
+Always-on sections: **Session** (R + package versions, timestamp),
+**Data** (rows × cols), **Survey design** (weighting / strata / cluster
+/ FPC), **Sample sizes** (n, strata, PSUs, design df), **Weights
+summary** (sum, min/median/mean/max, CV), **Confidence intervals**,
+**Result format**, **Notes** (denominator and skip-logic caveats).
+
+Optional sections, controlled by the function's arguments:
+
+| Argument | What it adds |
+|---|---|
+| `plan = <data frame>` | "Plan" section with indicator counts and breakdowns by `kobo_type` / `aggregation_method`. |
+| `results = <svyflow_results>` | "Design effect (DEFF)" roll-up — summary stats and the top 5 highest DEFFs (only when `results` carries a `DEFF` column). Also lets the writer read `result_format` / `digits` from the stamped attributes so the sheet documents what was actually computed. |
+| `cover_notes = c(...)` | "Project" section at the top with free-text lines. Named entries render as `"<name>: <value>"`, unnamed render verbatim. |
+| `theme = xlsx_theme(...)` | Same theme system as `write_xlsx()`. |
+
 ## Learn more
 
 See the vignette for a full worked example:

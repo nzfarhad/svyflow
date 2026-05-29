@@ -1,3 +1,34 @@
+# svyflow 0.4.0
+
+## New features
+
+* `write_methods_xlsx()` — a standalone companion to `write_xlsx()` that
+  writes a single-sheet `.xlsx` documenting how an analysis was produced.
+  Useful for methodology annexes and for shipping a reproducibility
+  trail alongside the results workbook. Does not touch `analyze_survey()`
+  or `write_xlsx()`.
+* Always-on sections cover **session info** (timestamp, user, R + key
+  package versions), **data** dimensions, **survey design** (weighting
+  flag, strata / cluster / FPC), **sample sizes** (n, strata count,
+  PSU count, design df from `survey::degf()`), **weights summary**
+  (sum, min/median/mean/max, CV), **CI options** (level, df,
+  `prop_method`, quantile knobs), **result format**, and a static
+  **notes** block with denominator / skip-logic caveats.
+* Conditional sections:
+  - **Plan** — included only when `plan =` is supplied. Counts
+    indicators, disaggregation vars, presence of `repeat_for` / `group`,
+    and breakdown tables by `kobo_type` and `aggregation_method`.
+  - **Design effect (DEFF)** — included only when `results =` carries a
+    `DEFF` column. Summary stats and the top five highest DEFFs.
+  - **Project** — included only when `cover_notes =` is supplied; a
+    free-text character vector for project name, funder, contact,
+    footnote disclaimers, etc. Named entries render as
+    `"<name>: <value>"`, unnamed render verbatim.
+* When `results` is supplied, its stamped `result_format` / `digits`
+  attributes are read in preference to the explicit args, so the
+  Methods sheet documents what was actually computed rather than what
+  the user typed.
+
 # svyflow 0.3.0
 
 ## New features
