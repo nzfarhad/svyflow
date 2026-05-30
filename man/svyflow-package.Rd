@@ -21,6 +21,12 @@ export already contains the sibling binary columns.
 The result is a long-format tibble of class \code{svyflow_results}, carrying
 point estimates, standard errors and 95\% confidence intervals. Output
 formatters (Excel, HTML, etc.) are planned and will dispatch on that class.
+
+Beyond descriptives, \code{\link[=compare_groups]{compare_groups()}} runs survey-design-aware
+significance tests (t-test / ANOVA / Wilcoxon / Kruskal-Wallis for numeric
+indicators, Rao-Scott chi-square / Fisher's exact for categorical ones),
+choosing the right test automatically and reporting an effect size
+alongside each p-value.
 }
 \author{
 \strong{Maintainer}: Sayed Farhad Nabizada \email{nzfarhad@gmail.com}

@@ -13,11 +13,19 @@
 #' point estimates, standard errors and 95% confidence intervals. Output
 #' formatters (Excel, HTML, etc.) are planned and will dispatch on that class.
 #'
+#' Beyond descriptives, [compare_groups()] runs survey-design-aware
+#' significance tests (t-test / ANOVA / Wilcoxon / Kruskal-Wallis for numeric
+#' indicators, Rao-Scott chi-square / Fisher's exact for categorical ones),
+#' choosing the right test automatically and reporting an effect size
+#' alongside each p-value.
+#'
 #' @keywords internal
 #' @importFrom rlang .data
 "_PACKAGE"
 
 # Suppress R CMD check NOTES for symbols used inside dplyr / srvyr NSE.
 utils::globalVariables(c(
-  "repeat_for"
+  "repeat_for",
+  # compare_groups(): symbols referenced inside survey / srvyr formulas.
+  "diff", "abs_diff", "pos"
 ))

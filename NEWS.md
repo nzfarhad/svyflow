@@ -1,3 +1,39 @@
+# svyflow 0.5.0
+
+## New features
+
+* `compare_groups()` — a single public function for survey-design-aware
+  significance testing. Selects and runs the right test for each indicator
+  comparing it across the levels of a grouping variable, and returns a tidy
+  one-row-per-indicator `svyflow_summary` table. With `test = "auto"` the
+  right survey-design-aware test is selected from the indicator type, the
+  number of groups, and the `paired` / `parametric` flags:
+  - **Numeric, 2 groups** — independent t-test (`ttest`) or Mann-Whitney U
+    (`wilcoxon`); paired t-test (`paired_ttest`) or Wilcoxon signed-rank
+    when `paired = TRUE` (needs `pair_by`).
+  - **Numeric, 3+ groups** — design-based ANOVA (`anova`) or Kruskal-Wallis
+    (`kruskal`).
+  - **Categorical** — Rao-Scott F chi-square (`chisq`), automatically
+    switching to Fisher's exact (`fisher`) when any expected cell count is
+    below 5 (`small_sample`).
+* Any branch can be forced via `test =`; a two-proportion z-test (`prop_z`)
+  is available as an explicit opt-in for binary x binary comparisons.
+* Output carries the test statistic, degrees of freedom, point estimate and
+  CI where defined, an effect size (Cohen's d, rank-biserial, eta-squared,
+  epsilon-squared, Cramer's V, odds ratio, or Cohen's h) with its type, the
+  p-value, significance stars, and the sample size used.
+* All tests except Fisher's exact respect the survey design (weights,
+  strata, clusters). Fisher's exact has no survey-aware form, so it runs on
+  the unweighted table and warns when selected.
+* Effect sizes are design-consistent where well-defined: Cramer's V is
+  computed from the weighted contingency proportions, and the Wilcoxon
+  rank-biserial uses weighted quantities. Cohen's d (design-based variances,
+  pooled by unweighted df) and the ANOVA eta-squared are documented
+  approximations -- see the "Effect sizes" section of `?compare_groups`.
+* Paired tests collapse the design to weighted independent pair differences;
+  a warning fires when the original design carried strata or clusters, since
+  that structure cannot be preserved per pair.
+
 # svyflow 0.4.0
 
 ## New features

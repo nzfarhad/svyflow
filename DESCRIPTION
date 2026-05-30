@@ -1,6 +1,6 @@
 Package: svyflow
 Title: Survey-Design-Aware Descriptive Analysis Driven by an Analysis Plan
-Version: 0.4.0
+Version: 0.5.0
 Authors@R:
     person(given  = "Sayed Farhad",
            family = "Nabizada",

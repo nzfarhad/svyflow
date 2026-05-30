@@ -315,10 +315,57 @@ only what you have. When `results` carries a `DEFF` column, a roll-up
 section (mean / median / max DEFF, mean `n_eff`, top 5 highest DEFFs) is
 added automatically.
 
+## Step 10 — group comparison
+
+Descriptives answer "what is the value?"; `compare_groups()` answers "is the
+difference real?". It selects and runs the right survey-design-aware test for
+each indicator across the levels of a grouping variable and returns one tidy
+row per indicator, with the test statistic, degrees of freedom, an effect
+size, the p-value and significance stars.
+
+```{r}
+# Numeric indicators x two groups -> independent t-tests, auto-selected.
+compare_groups(des, c("hh_size", "income"), "gender")
+
+# Categorical indicator -> Rao-Scott chi-square (Fisher's exact on sparse
+# tables), with Cramer's V as the effect size.
+compare_groups(des, "edu_lvl", "province")
+
+# Rank-based variants when normality is doubtful.
+compare_groups(des, "hh_size", "province", parametric = FALSE)  # Kruskal-Wallis
+```
+
+For a **paired** design — the same units measured twice (baseline vs endline)
+— supply `paired = TRUE` and the `pair_by` identifier so the test is run on
+the per-unit differences:
+
+```{r}
+# A small synthetic two-wave panel.
+set.seed(11)
+n_units <- 150
+base_v  <- stats::rpois(n_units, 5) + 1
+panel <- data.frame(
+  unit_id = rep(seq_len(n_units), each = 2),
+  wave    = rep(c("baseline", "endline"), times = n_units),
+  score   = c(rbind(base_v, base_v + stats::rnorm(n_units, 0.7, 1.5))),
+  weight  = rep(stats::runif(n_units, 0.5, 2), each = 2)
+)
+pdes <- make_design(panel, weights = "weight")
+
+compare_groups(pdes, "score", "wave", paired = TRUE, pair_by = "unit_id")
+```
+
+Any branch can be forced with `test =` (`"ttest"`, `"wilcoxon"`, `"anova"`,
+`"kruskal"`, `"chisq"`, `"fisher"`, `"prop_z"`, plus the paired variants), and
+`ci_opts()` threads the confidence level / degrees of freedom into the t-test
+intervals. All tests except Fisher's exact respect the survey design; Fisher
+has no survey-aware form, so it runs on the unweighted table and emits a note.
+
 ## Where to go next
 
 - `?analyze_survey` — the batch entry point and its full plan schema.
 - `?summarize_select_one`, `?summarize_mean`, … — the single-indicator family.
+- `?compare_groups` — group comparison / significance testing.
 - `?ci_opts` — confidence-interval options.
 - `?format_results` — post-run reformatting.
 - `?write_xlsx`, `?xlsx_theme` — Excel export and theming.
