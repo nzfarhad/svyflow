@@ -85,6 +85,35 @@ There is one wrapper per aggregator: `summarize_select_one()`,
 `summarize_median()`, `summarize_quantile()`, `summarize_min()`,
 `summarize_max()`.
 
+## Group comparison (significance testing)
+
+`compare_groups()` picks and runs the right survey-design-aware test for an
+indicator across the levels of a grouping variable, returning one tidy row per
+indicator. With `test = "auto"` (the default) it selects the test from the
+indicator type, the number of groups, and the `paired` / `parametric` flags:
+t-test / ANOVA for numeric indicators (Wilcoxon / Kruskal-Wallis when
+`parametric = FALSE`), and Rao-Scott chi-square for categorical indicators
+(switching to Fisher's exact when an expected cell count drops below 5).
+
+```r
+# Numeric x two groups -> independent t-test
+compare_groups(des, "hh_size", "gender")
+#> | Indicator | Group  | Comparison     | Test  | Statistic | DF  | Estimate | ... | P_value | Significance |
+#> | hh_size   | gender | female vs male | ttest | 1.02      | 480 | 0.222    | ... | 0.307   |              |
+
+# Categorical x group -> Rao-Scott chi-square (Cramer's V effect size)
+compare_groups(des, "edu_lvl", "gender")
+
+# Several indicators at once; rank-based variants
+compare_groups(des, c("hh_size", "income"), "gender", parametric = FALSE)
+```
+
+Paired comparisons (e.g. baseline vs endline on a panel) use `paired = TRUE`
+with a `pair_by` identifier column. Every branch can be forced via `test =`;
+`prop_z` (a two-proportion z-test) is available as an explicit opt-in. All
+tests except Fisher's exact respect the survey design (weights, strata,
+clusters); Fisher runs on the unweighted table and says so.
+
 ## Output format: proportion, percent, or formatted
 
 Categorical results default to **proportions** (0–1). Switch with
